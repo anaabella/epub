@@ -54,6 +54,7 @@ app.use(express.json());
 
 // La ruta que Telegram usará para enviarnos actualizaciones
 app.post(`/bot${token}`, (req, res) => {
+    console.log('¡Webhook recibido de Telegram!');
     bot.processUpdate(req.body);
     res.sendStatus(200); // Respondemos a Telegram que todo está bien
 });
