@@ -487,7 +487,10 @@ function cleanTextNodes(doc, options, window) {
     const walker = doc.createTreeWalker(doc.documentElement, window.NodeFilter.SHOW_TEXT, null, false);
     let node;
 
-    const targetPhrase = "Machine Translated by Google";
+    const watermarks = [
+        "Machine Translated by Google",
+        "OceanoPDF.com"
+    ];
     const periodQuoteRegex = /\.["”]/g;
     const allQuotesRegex = /["'“”‘’«»]/g;
 
@@ -496,9 +499,14 @@ function cleanTextNodes(doc, options, window) {
         let newText = node.nodeValue;
         let textModified = false;
 
-        if (options.removeGoogle && newText.includes(targetPhrase)) {
-            newText = newText.replace(new RegExp(targetPhrase, 'g'), '');
-            textModified = true;
+        if (options.removeGoogle) {
+            for (const watermark of watermarks) {
+                // Usamos un simple replaceAll para evitar problemas con caracteres especiales en la RegExp
+                if (newText.includes(watermark)) {
+                    newText = newText.replaceAll(watermark, '');
+                    textModified = true;
+                }
+            }
         }
         if (options.fixPunctuation) {
             newText = newText.replace(periodQuoteRegex, ' —').replace(allQuotesRegex, '—');
