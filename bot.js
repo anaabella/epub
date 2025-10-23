@@ -52,7 +52,7 @@ app.use(express.json());
 
 // --- Configuración de la Base de Datos (lowdb) ---
 const adapter = new JSONFile('db.json');
-const db = new Low(adapter);
+const db = new Low(adapter, {}); // Provide default data (an empty object)
 
 // --- Función de arranque asíncrona para manejar el webhook de forma segura ---
 const start = async () => {
