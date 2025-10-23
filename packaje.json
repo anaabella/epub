@@ -1,0 +1,18 @@
+{
+  "name": "telegram-epub-cleaner",
+  "version": "1.0.0",
+  "description": "Un bot de Telegram para limpiar archivos epub.",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "jsdom": "^22.1.0",
+    "jszip": "^3.10.1",
+    "node-telegram-bot-api": "^0.61.0"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}
