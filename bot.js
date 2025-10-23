@@ -44,27 +44,38 @@ if (!token || !url) {
 
 // --- 3. Inicializar el Bot ---
 const bot = new TelegramBot(token);
-
-// Se configura el Webhook. La ruta /bot${token} es para seguridad, para que solo Telegram la conozca.
-bot.setWebHook(`${url}/bot${token}`);
-
 const app = express();
 // Middleware para parsear el JSON que envía Telegram
 app.use(express.json());
 
-// La ruta que Telegram usará para enviarnos actualizaciones
-app.post(`/bot${token}`, (req, res) => {
-    console.log('¡Webhook recibido de Telegram!');
-    bot.processUpdate(req.body);
-    res.sendStatus(200); // Respondemos a Telegram que todo está bien
-});
+// --- Función de arranque asíncrona para manejar el webhook de forma segura ---
+const start = async () => {
+    try {
+        const webhookUrl = `${url}/bot${token}`;
+        // 1. Configurar el webhook y esperar la confirmación de Telegram
+        await bot.setWebHook(webhookUrl);
+        console.log(`¡Webhook configurado exitosamente en ${webhookUrl}!`);
 
-// Iniciamos el servidor
-app.listen(port, () => {
-    console.log(`Servidor Express escuchando en el puerto ${port}`);
-    console.log(`Bot configurado para recibir actualizaciones en ${url}/bot${token}`);
-    console.log('Habla con tu bot en Telegram para probarlo.');
-});
+        // 2. Configurar la ruta que escuchará a Telegram
+        app.post(`/bot${token}`, (req, res) => {
+            // Este log es para confirmar que los mensajes llegan
+            console.log('¡Petición recibida en el webhook!');
+            bot.processUpdate(req.body);
+            res.sendStatus(200); // Respondemos a Telegram que todo está bien
+        });
+
+        // 3. Iniciar el servidor Express
+        app.listen(port, () => {
+            console.log(`Servidor Express escuchando en el puerto ${port}`);
+            console.log('Habla con tu bot en Telegram para probarlo.');
+        });
+
+    } catch (error) {
+        // Si setWebHook falla, este bloque se ejecutará
+        console.error('ERROR CRÍTICO AL CONFIGURAR EL WEBHOOK:', error.message);
+        process.exit(1); // Detenemos el bot para que el error sea visible
+    }
+};
 
 // --- 4. Listeners (Escuchadores de Eventos) ---
 
@@ -72,6 +83,9 @@ app.listen(port, () => {
 bot.onText(/\/start/, (msg) => {
     bot.sendMessage(msg.chat.id, "¡Hola! Envíame un archivo .epub y lo limpiaré por ti, usando todas las opciones de limpieza activadas.");
 });
+
+// Iniciar todo el proceso
+start();
 
 // Responde cuando alguien envía un documento
 bot.on('document', async (msg) => {
