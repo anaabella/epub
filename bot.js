@@ -264,11 +264,12 @@ start();
 bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
 
-    // Ignorar si no es un mensaje de texto, si es un comando, o si el usuario no está esperando reglas.
+    // Solo actuar si es un mensaje de texto, no es un comando y el usuario está esperando reglas.
     if (!msg.text || msg.text.startsWith('/') || !db.data.userStates[chatId] || !db.data.userStates[chatId].isWaitingForReplacements) {
+        // Si no se cumplen las condiciones, no hacemos nada y dejamos que otros listeners (como on 'document') actúen.
         return;
     }
-
+    
     try {
         const lines = msg.text.split('\n').filter(line => line.trim() !== '');
         const replacements = [];
