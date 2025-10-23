@@ -83,7 +83,6 @@ const start = async () => {
 bot.onText(/\/start/, (msg) => {
     bot.sendMessage(msg.chat.id, "¡Hola! Envíame un archivo .epub y lo limpiaré por ti, usando todas las opciones de limpieza activadas.");
 });
-
 // Iniciar todo el proceso
 start();
 
