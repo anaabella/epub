@@ -22,7 +22,8 @@ const TelegramBot = require('node-telegram-bot-api');
 const JSZip = require('jszip');
 const { JSDOM } = require('jsdom'); // Para DOMParser y XMLSerializer en Node.js
 const express = require('express');
-const { JSONFile, Low } = require('lowdb');
+const { Low } = require('lowdb');
+const { JSONFile } = require('lowdb/node');
 
 // --- 2. Configuración del Token ---
 // ¡NO PONGAS TU CLAVE AQUÍ! Lee la variable de entorno que configuraste.
