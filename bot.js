@@ -480,11 +480,11 @@ function cleanEmptyParagraphs(doc) {
  * @param {object} options - Las opciones de limpieza específicas del texto.
  * @returns {boolean} - `true` si se realizaron cambios, de lo contrario `false`.
  */
-function cleanTextNodes(doc, options) {
+function cleanTextNodes(doc, options, window) {
     if (!doc.documentElement) return false;
 
     let modified = false;
-    const walker = doc.createTreeWalker(doc.documentElement, doc.defaultView.NodeFilter.SHOW_TEXT, null, false);
+    const walker = doc.createTreeWalker(doc.documentElement, window.NodeFilter.SHOW_TEXT, null, false);
     let node;
 
     const targetPhrase = "Machine Translated by Google";
@@ -583,7 +583,7 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
                             fixSpacing: options.fixSpacing,
                             singleUseReplacements: options.singleUseReplacements,
                         };
-                        if (cleanTextNodes(doc, textOptions)) {
+                        if (cleanTextNodes(doc, textOptions, window)) {
                             modified = true;
                         }
 
