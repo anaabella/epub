@@ -322,6 +322,9 @@ bot.on('document', async (msg) => {
     const chatId = msg.chat.id;
     const file = msg.document;
 
+    // Ensure the main userStates object exists in the database.
+    db.data.userStates ||= {};
+
     if (file.file_name && file.file_name.endsWith('.epub')) {
         // --- MANEJO DE ARCHIVO .EPUB ---
         // Guardaremos el mensaje de estado para poder editarlo o borrarlo.
