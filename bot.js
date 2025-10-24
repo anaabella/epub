@@ -96,6 +96,7 @@ const start = async () => {
             { command: 'limpiar', description: 'Personaliza las opciones de limpieza' },
             { command: 'reemplazar', description: 'Añade reglas para el próximo libro' },
             { command: 'metadata', description: 'Edita los metadatos del próximo libro (título, autor)' },
+            { command: 'perfiles', description: 'Guarda y gestiona tus perfiles de limpieza' },
             { command: 'css', description: 'Inyecta CSS personalizado en el próximo libro' }, // Nuevo comando
             { command: 'diccionario', description: 'Gestiona tus diccionarios de reemplazo persistentes' },
             { command: 'help', description: 'Muestra la ayuda detallada' },
@@ -135,7 +136,8 @@ const defaultOptions = {
     translate: false,
     removeHyperlinks: false,
     removeFootnotes: false,
-    optimizeImages: false // Nueva opción para optimizar imágenes
+    optimizeImages: false,
+    extractCoverOnly: false // Nueva opción para extraer solo la portada
 };
 
 // Función para generar el teclado de opciones dinámicamente.
@@ -152,6 +154,7 @@ function generateOptionsKeyboard(options) {
             case 'removeHyperlinks': return `${emoji} Quitar hipervínculos`;
             case 'removeFootnotes': return `${emoji} Quitar notas al pie`;
             case 'optimizeImages': return `${emoji} Optimizar imágenes`;
+            case 'extractCoverOnly': return `${emoji} Solo extraer portada`;
             case 'translate':      return `${emoji} Traducir a Español`;
             case 'generateSummary': return `${emoji} Generar resumen con IA`;
             default:               return '';
@@ -171,6 +174,7 @@ function generateOptionsKeyboard(options) {
         [ { text: getLabel('removeHyperlinks'), callback_data: 'toggle_removeHyperlinks' } ],
         [ { text: getLabel('removeFootnotes'), callback_data: 'toggle_removeFootnotes' } ],
         [ { text: getLabel('optimizeImages'), callback_data: 'toggle_optimizeImages' } ],
+        [ { text: getLabel('extractCoverOnly'), callback_data: 'toggle_extractCoverOnly' } ],
         [ { text: getLabel('translate'), callback_data: 'toggle_translate' } ], // Keep this to enable/disable translation
         [ { text: getLabel('generateSummary'), callback_data: 'toggle_generateSummary' } ], // New button
         [ { text: 'Guardar como mis opciones por defecto', callback_data: 'save_default_options' } ], // Nuevo botón
@@ -325,6 +329,41 @@ bot.on('callback_query', async (callbackQuery) => {
                 await bot.deleteMessage(chatId, msg.message_id);
             }
             await bot.answerCallbackQuery(callbackQuery.id);
+        } else if (data.startsWith('profile_')) {
+            const parts = data.split('_');
+            const action = parts[1];
+            const profileName = parts.slice(2).join('_');
+
+            if (action === 'load') {
+                if (userOptions.profiles?.[profileName]) {
+                    Object.assign(userOptions, userOptions.profiles[profileName]);
+                    await db.write();
+                    await bot.answerCallbackQuery(callbackQuery.id, { text: `Perfil "${profileName}" cargado.` });
+                    await bot.deleteMessage(chatId, msg.message_id);
+                    await bot.sendMessage(chatId, `Configuración del perfil "${profileName}" cargada. Ahora puedes enviar tu archivo o usar /limpiar para ver/modificar las opciones.`);
+                }
+            } else if (action === 'delete') {
+                if (userOptions.profiles?.[profileName]) {
+                    delete userOptions.profiles[profileName];
+                    await db.write();
+                    await bot.answerCallbackQuery(callbackQuery.id, { text: `Perfil "${profileName}" eliminado.` });
+                    await bot.editMessageReplyMarkup({ inline_keyboard: generateProfilesKeyboard(chatId) }, { chat_id: chatId, message_id: msg.message_id });
+                }
+            } else if (action === 'save') {
+                userOptions.isWaitingForProfileName = true;
+                await db.write();
+                await bot.sendMessage(chatId, "Por favor, envía el nombre para guardar tu configuración actual como un nuevo perfil.");
+                await bot.deleteMessage(chatId, msg.message_id);
+            } else if (action === 'close') {
+                await bot.deleteMessage(chatId, msg.message_id);
+            } else if (action === 'back') {
+                await bot.deleteMessage(chatId, msg.message_id);
+                // Simular llamada a /limpiar
+                bot.emit('text', { ...msg, text: '/limpiar' });
+            } else if (action === 'close') {
+                await bot.deleteMessage(chatId, msg.message_id);
+            }
+            await bot.answerCallbackQuery(callbackQuery.id);
         } else if (data === 'toggle_generateSummary') {
             userOptions.generateSummary = !userOptions.generateSummary;
             await db.write();
@@ -467,6 +506,40 @@ bot.onText(/\/css/, async (msg) => {
     }
 });
 
+function generateProfilesKeyboard(chatId) {
+    const userState = db.data.userStates?.[chatId];
+    const profiles = userState?.profiles || {};
+    const keyboard = [];
+
+    if (Object.keys(profiles).length > 0) {
+        for (const profileName in profiles) {
+            keyboard.push([
+                { text: `📂 ${profileName}`, callback_data: `no_op` }, // Non-clickable label
+                { text: '⬆️ Cargar', callback_data: `profile_load_${profileName}` },
+                { text: '🗑️ Eliminar', callback_data: `profile_delete_${profileName}` }
+            ]);
+        }
+    } else {
+        keyboard.push([{ text: "No tienes perfiles guardados.", callback_data: "no_op" }]);
+    }
+
+    keyboard.push([{ text: '➕ Guardar configuración actual', callback_data: 'profile_save' }]);
+    keyboard.push([{ text: '🔙 Volver', callback_data: 'profile_back' }]);
+
+    return keyboard;
+}
+
+bot.onText(/\/perfiles/, async (msg) => {
+    const chatId = msg.chat.id;
+    logEvent(`Usuario ${msg.from.id} (${msg.from.username || msg.from.first_name}) usó /perfiles.`);
+    if (!db.data.userStates?.[chatId]) {
+        db.data.userStates[chatId] = { ...defaultOptions, singleUseReplacements: [], processingQueue: [] };
+    }
+    const keyboard = generateProfilesKeyboard(chatId);
+    await bot.sendMessage(chatId, "Gestiona tus perfiles de limpieza:", {
+        reply_markup: { inline_keyboard: keyboard }
+    });
+});
 
 function generateDictionaryKeyboard(chatId) {
     const userState = db.data.userStates?.[chatId];
@@ -733,6 +806,39 @@ async function sendProcessedFile(chatId, processedBuffer, wasTranslated, bookSum
     logEvent(`Chat ${chatId}: Archivo "${finalFileName}" enviado.`);
 }
 // --- Funciones para la cola de procesamiento ---
+
+async function extractAndSendCover(chatId, fileBuffer, statusMessage) {
+    await bot.editMessageText('Extrayendo portada...', { chat_id: statusMessage.chat.id, message_id: statusMessage.message_id });
+    const jszip = new JSZip();
+    const zip = await jszip.loadAsync(fileBuffer);
+
+    const opfFile = Object.values(zip.files).find(file => file.name.endsWith('.opf'));
+    if (!opfFile) {
+        throw new Error("No se pudo encontrar el archivo .opf en el EPUB.");
+    }
+
+    const opfContent = await opfFile.async('string');
+    const coverMetaMatch = opfContent.match(/<meta\s+name="cover"\s+content="([^"]+)"/);
+    if (!coverMetaMatch || !coverMetaMatch[1]) {
+        throw new Error("No se pudo encontrar la referencia a la portada en los metadatos del EPUB.");
+    }
+    const coverId = coverMetaMatch[1];
+
+    const coverItemMatch = opfContent.match(new RegExp(`<item\\s+id="${coverId}"[^>]+href="([^"]+)"`));
+    if (!coverItemMatch || !coverItemMatch[1]) {
+        throw new Error("No se pudo encontrar la ruta de la imagen de portada en el manifiesto del EPUB.");
+    }
+    const coverPath = path.join(path.dirname(opfFile.name), coverItemMatch[1]);
+
+    const coverFile = zip.file(coverPath);
+    if (!coverFile) {
+        throw new Error(`El archivo de portada "${coverPath}" no existe dentro del EPUB.`);
+    }
+
+    const coverBuffer = await coverFile.async('nodebuffer');
+    await bot.sendPhoto(chatId, coverBuffer);
+    await bot.deleteMessage(chatId, statusMessage.message_id);
+}
 const userProcessingStatus = {}; // Para rastrear si un usuario está procesando actualmente
 
 async function processUserQueue(chatId) {
@@ -767,6 +873,14 @@ async function processUserQueue(chatId) {
                 let originalFileName = job.originalFileName;
 
                 if (job.type === 'file') {
+                    // Si la opción es solo extraer la portada, hacerlo y saltar el resto
+                    if (job.options.extractCoverOnly) {
+                        logEvent(`Chat ${chatId}: Iniciando extracción de portada para "${originalFileName}".`);
+                        const fileBuffer = Buffer.from(job.fileBuffer.data);
+                        await extractAndSendCover(chatId, fileBuffer, statusMessage);
+                        continue; // Saltar al siguiente trabajo en la cola
+                    }
+
                     fileBuffer = Buffer.from(job.fileBuffer.data); // Re-create buffer from JSON data
                 } else if (job.type === 'url') {
                     const cacheDir = './cache';
@@ -794,6 +908,14 @@ async function processUserQueue(chatId) {
                         await fs.writeFile(cachedFilePath, fileBuffer);
                         await fs.unlink(tempEpubPath).catch(e => console.warn(`No se pudo borrar el archivo temporal: ${tempEpubPath}`, e));
                     }
+
+                    // Si la opción es solo extraer la portada, hacerlo y saltar el resto
+                    if (job.options.extractCoverOnly) {
+                        logEvent(`Chat ${chatId}: Iniciando extracción de portada para URL: ${job.url}`);
+                        await extractAndSendCover(chatId, fileBuffer, statusMessage);
+                        continue; // Saltar al siguiente trabajo en la cola
+                    }
+
 
                     try {
                         const storyTitleMatch = (await fs.readFile(epubPath, 'utf-8')).match(/<dc:title>(.*?)<\/dc:title>/);
@@ -1031,148 +1153,6 @@ signals.forEach(signal => {
         process.exit(0);
     });
 });
-
-// --- 6. Inicio del Bot ---
-// Iniciar todo el proceso
-start();
-
-/**
- * Elimina las etiquetas <img> y <image> de un documento DOM.
- * @param {Document} doc - El documento DOM a limpiar.
- * @returns {boolean} - `true` si se realizaron cambios, de lo contrario `false`.
- */
-function cleanImages(doc) {
-    const imgTags = doc.querySelectorAll('img');
-    const imageTags = doc.querySelectorAll('image');
-    if (imgTags.length === 0 && imageTags.length === 0) {
-        return false;
-    }
-    imgTags.forEach(img => img.remove());
-    imageTags.forEach(img => img.remove());
-    return true;
-}
-
-/**
- * Elimina los atributos de estilo en línea de todos los elementos.
- * @param {Document} doc - El documento DOM a limpiar.
- * @returns {boolean} - `true` si se realizaron cambios, de lo contrario `false`.
- */
-function cleanStyles(doc) {
-    const styledElements = doc.querySelectorAll('[style]');
-    if (styledElements.length === 0) {
-        return false;
-    }
-    styledElements.forEach(el => el.removeAttribute('style'));
-    return true;
-}
-
-/**
- * Elimina los párrafos vacíos.
- * @param {Document} doc - El documento DOM a limpiar.
- * @returns {boolean} - `true` si se realizaron cambios, de lo contrario `false`.
- */
-function cleanEmptyParagraphs(doc) {
-    const emptyParagraphs = Array.from(doc.querySelectorAll('p')).filter(p =>
-        p.textContent.trim() === '' && p.firstElementChild === null
-    );
-    if (emptyParagraphs.length === 0) {
-        return false;
-    }
-    emptyParagraphs.forEach(p => p.remove());
-    return true;
-}
-
-/**
- * Elimina todos los hipervínculos (etiquetas <a>) de un documento DOM, dejando solo su texto.
- * @param {Document} doc - El documento DOM a limpiar.
- * @returns {boolean} - `true` si se realizaron cambios, de lo contrario `false`.
- */
-function cleanHyperlinks(doc) {
-    const links = doc.querySelectorAll('a');
-    if (links.length === 0) {
-        return false;
-    }
-    links.forEach(link => link.replaceWith(link.textContent || '')); // Reemplaza el enlace con su texto
-    return true;
-}
-
-/**
- * Elimina las referencias a notas al pie y las propias notas del documento.
- * @param {Document} doc - El documento DOM a limpiar.
- * @returns {boolean} - `true` si se realizaron cambios, de lo contrario `false`.
- */
-function cleanFootnotes(doc) {
-    // Las referencias a notas suelen tener epub:type="noteref"
-    const noteRefs = doc.querySelectorAll('[epub\\:type="noteref"]');
-    // El contenido de las notas suele tener epub:type="footnote" o "endnote"
-    const footnotes = doc.querySelectorAll('[epub\\:type="footnote"], [epub\\:type="endnote"]');
-
-    if (noteRefs.length === 0 && footnotes.length === 0) {
-        return false;
-    }
-
-    noteRefs.forEach(ref => ref.remove());
-    footnotes.forEach(note => note.remove());
-    return true;
-}
-
-/**
- * Realiza varias limpiezas en los nodos de texto usando un TreeWalker.
- * @param {Document} doc - El documento DOM a limpiar.
- * @param {object} options - Las opciones de limpieza específicas del texto.
- * @returns {boolean} - `true` si se realizaron cambios, de lo contrario `false`.
- */
-function cleanTextNodes(doc, options, window) {
-    if (!doc.documentElement) return false;
-
-    let modified = false;
-    const walker = doc.createTreeWalker(doc.documentElement, window.NodeFilter.SHOW_TEXT, null, false);
-    let node;
-
-    const watermarks = [
-        "Machine Translated by Google",
-        "OceanoPDF.com"
-    ];
-    const periodQuoteRegex = /\.["”]/g;
-    const allQuotesRegex = /["'“”‘’«»]/g;
-
-    while (node = walker.nextNode()) {
-        if (!node.nodeValue) continue;
-        let newText = node.nodeValue;
-        let textModified = false;
-
-        if (options.removeGoogle) {
-            for (const watermark of watermarks) {
-                // Usamos un simple replaceAll para evitar problemas con caracteres especiales en la RegExp
-                if (newText.includes(watermark)) {
-                    newText = newText.replaceAll(watermark, '');
-                    textModified = true;
-                }
-            }
-        }
-        if (options.fixPunctuation) {
-            newText = newText.replace(periodQuoteRegex, ' —').replace(allQuotesRegex, '—');
-            textModified = textModified || (newText !== node.nodeValue);
-        }
-        if (options.fixSpacing && newText.includes('  ')) {
-            newText = newText.replace(/ +/g, ' ');
-            textModified = true;
-        }
-        // Aplicar reglas de reemplazo personalizadas
-        if (options.singleUseReplacements && options.singleUseReplacements.length > 0) {
-            for (const rule of options.singleUseReplacements) {
-                newText = newText.replace(new RegExp(rule.original, 'g'), rule.replacement);
-            }
-            textModified = textModified || (newText !== node.nodeValue);
-        }
-
-        if (textModified) {
-            node.nodeValue = newText;
-            modified = true;
-        }
-    }
-    return modified;
-}
 
 /**
  * Traduce el contenido de un documento HTML a español.
