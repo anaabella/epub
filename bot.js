@@ -298,44 +298,6 @@ Estas reglas se aplicarán *solo al siguiente .epub que envíes*.
     bot.sendMessage(msg.chat.id, message, { parse_mode: 'Markdown' });
 });
 
-// Iniciar todo el proceso
-start();
-
-// Listener para mensajes de texto (para capturar las reglas de reemplazo)
-bot.on('message', async (msg) => {
-    const chatId = msg.chat.id;
-
-    // Solo actuar si es un mensaje de texto, no es un comando y el usuario está esperando reglas.
-    if (!msg.text || msg.text.startsWith('/') || !db.data.userStates[chatId] || !db.data.userStates[chatId].isWaitingForReplacements) {
-        // Si no se cumplen las condiciones, no hacemos nada y dejamos que otros listeners (como on 'document') actúen.
-        return;
-    }
-
-    try {
-        const lines = msg.text.split('\n').filter(line => line.trim() !== '');
-        const replacements = [];
-
-        for (const line of lines) {
-            const parts = line.split(',');
-            if (parts.length >= 2) {
-                const original = parts[0].trim();
-                const replacement = parts.slice(1).join(',').trim();
-                if (original) {
-                    replacements.push({ original, replacement });
-                }
-            }
-        }
-
-        db.data.userStates[chatId].singleUseReplacements = replacements;
-        db.data.userStates[chatId].isWaitingForReplacements = false; // Salir del modo de espera
-        await db.write();
-
-        await bot.sendMessage(chatId, `✅ ¡${replacements.length} reglas de reemplazo guardadas para el próximo libro! Ahora, envía tu archivo .epub.`);
-    } catch (err) {
-        await bot.sendMessage(chatId, `Ocurrió un error al procesar tus reglas: ${err.message}`);
-    }
-});
-
 /**
  * Centraliza el manejo de errores para los listeners del bot.
  * @param {Error} err - El objeto de error.
@@ -368,6 +330,48 @@ async function handleError(err, chatId, statusMessage) {
 
 const runShellCommand = (cmd) => new Promise((resolve, reject) => {
     require('child_process').exec(cmd, (error, stdout, stderr) => error ? reject(new Error(stderr || stdout)) : resolve(stdout));
+});
+
+// --- 5. Listeners de Contenido ---
+
+// Listener para mensajes de texto (para capturar las reglas de reemplazo)
+// Usamos onText(/.*/) para que solo se active con mensajes de texto y no interfiera con los documentos.
+bot.onText(/.*/, async (msg) => {
+    const chatId = msg.chat.id;
+
+    // Ignorar si es un comando, ya que tienen sus propios listeners (onText con regex específicas)
+    if (msg.text.startsWith('/')) {
+        return;
+    }
+
+    // Solo actuar si el usuario está esperando reglas.
+    if (!db.data.userStates?.[chatId]?.isWaitingForReplacements) {
+        return;
+    }
+
+    try {
+        const lines = msg.text.split('\n').filter(line => line.trim() !== '');
+        const replacements = [];
+
+        for (const line of lines) {
+            const parts = line.split(',');
+            if (parts.length >= 2) {
+                const original = parts[0].trim();
+                const replacement = parts.slice(1).join(',').trim();
+                if (original) {
+                    replacements.push({ original, replacement });
+                }
+            }
+        }
+
+        db.data.userStates[chatId].singleUseReplacements = replacements;
+        db.data.userStates[chatId].isWaitingForReplacements = false; // Salir del modo de espera
+        await db.write();
+
+        await bot.sendMessage(chatId, `✅ ¡${replacements.length} reglas de reemplazo guardadas para el próximo libro! Ahora, envía tu archivo .epub.`);
+    } catch (err) {
+        await bot.sendMessage(chatId, `Ocurrió un error al procesar tus reglas: ${err.message}`);
+    }
 });
 
 // Responde cuando alguien envía un documento
@@ -514,8 +518,13 @@ bot.onText(wattpadUrlRegex, async (msg) => {
 
         // Leer el archivo descargado en un buffer
         const fileBuffer = await fs.readFile(epubPath);
-        const storyTitleMatch = (await fs.readFile(epubPath, 'utf-8')).match(/<dc:title>(.*?)<\/dc:title>/);
-        const originalFileName = storyTitleMatch ? `${storyTitleMatch[1].replace(/[/\\?%*:|"<>]/g, '-')}.epub` : tempFileName;
+        let originalFileName = tempFileName;
+        try {
+            const storyTitleMatch = (await fs.readFile(epubPath, 'utf-8')).match(/<dc:title>(.*?)<\/dc:title>/);
+            if (storyTitleMatch && storyTitleMatch[1]) {
+                originalFileName = `${storyTitleMatch[1].replace(/[/\\?%*:|"<>]/g, '-')}.epub`;
+            }
+        } catch (e) { console.warn("No se pudo leer el título del EPUB de Wattpad, se usará un nombre genérico."); }
 
         // Obtener las opciones del usuario
         db.data.userStates ||= {};
@@ -545,15 +554,18 @@ bot.onText(wattpadUrlRegex, async (msg) => {
 // --- Graceful Shutdown ---
 const signals = ['SIGINT', 'SIGTERM'];
 signals.forEach(signal => {
-    process.on(signal, async () => {
+    process.on(signal, () => {
         console.log(`\nRecibida señal ${signal}. Cerrando el bot...`);
-        await bot.stopPolling({ cancel: true }).catch(e => console.error('Error al detener el sondeo:', e));
-        console.log('Bot detenido. Saliendo.');
+        // En modo webhook, no necesitamos detener el sondeo.
+        // Simplemente cerramos el proceso del servidor, y el orquestador (Render) lo manejará.
+        console.log('Servidor cerrándose. Saliendo.');
         process.exit(0);
     });
 });
 
-// --- 6. Funciones de Limpieza Modulares ---
+// --- 6. Inicio del Bot ---
+// Iniciar todo el proceso
+start();
 
 /**
  * Elimina las etiquetas <img> y <image> de un documento DOM.
@@ -717,7 +729,7 @@ async function getLanguageFromOPF(zip) {
     return null;
 }
 
-// --- 5. Lógica de Procesamiento (Adaptada de la PWA) ---
+// --- 7. Lógica de Procesamiento (Adaptada de la PWA) ---
 
 /**
  * Procesa un buffer de archivo .epub y aplica las opciones de limpieza.
