@@ -758,11 +758,12 @@ async function sendProcessedFile(chatId, processedBuffer, wasTranslated, bookSum
  */
 async function createFanFicFareRecipe(url, recipePath) {
     const recipeContent = `
-from calibre.web.recipes.fanfictionnet import FanFictionNetSite
-class GeneratedRecipe(FanFictionNetSite):
-    def __init__(self, *args):
-        FanFictionNetSite.__init__(self, *args)
-        self.story_url = '${url}'
+from calibre.web.feeds.recipes import BasicNewsRecipe
+
+class FanFicFareRecipe(BasicNewsRecipe):
+    title = u'Downloaded Story'
+    __author__ = u'FanFicFare'
+    extra_customization = ('story_url',)
 `;
     await fs.writeFile(recipePath, recipeContent.trim());
 }
@@ -826,7 +827,7 @@ async function processUserQueue(chatId) {
                         
                         await onProgress(`Descargando historia de ${new URL(job.url).hostname}...`);
                         await createFanFicFareRecipe(job.url, recipePath);
-                        await runShellCommand('ebook-convert', [recipePath, tempEpubPath, '--verbose']);
+                        await runShellCommand('ebook-convert', [recipePath, tempEpubPath, '--verbose', '--custom-recipe', `story_url=${job.url}`]);
                         fileBuffer = await fs.readFile(tempEpubPath);
                         
                         // Guardar en caché para futuras solicitudes
