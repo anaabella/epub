@@ -752,13 +752,12 @@ async function sendProcessedFile(chatId, processedBuffer, wasTranslated, bookSum
  * @param {string} url - La URL de la historia a descargar.
  * @param {string} recipePath - La ruta donde se guardará el archivo .recipe.
  */
-async function createFanFicFareRecipe(url, recipePath) { // This function is now correct
-    const recipeContent = `
-from calibre.web.recipes.fanfictionnet import FanFictionNetSite
-class GeneratedRecipe(FanFictionNetSite):
-    def __init__(self, *args):
-        FanFictionNetSite.__init__(self, *args)
-        self.story_url = '${url}'
+async function createFanFicFareRecipe(url, recipePath) {
+    const recipeContent = `from calibre.web.feeds.recipes import BasicNewsRecipe
+class FanFicFare(BasicNewsRecipe):
+    title = u'Downloaded Story'
+    __author__ = u'FanFicFare'
+    extra_customization = (('url', 'url', 'URL', 'URL of story to download'),)
 `;
     await fs.writeFile(recipePath, recipeContent.trim());
 }
@@ -822,7 +821,7 @@ async function processUserQueue(chatId) {
                         
                         await onProgress(`Descargando historia de ${new URL(job.url).hostname}...`);
                         await createFanFicFareRecipe(job.url, recipePath);
-                        await runShellCommand('xvfb-run', ['-a', 'ebook-convert', recipePath, tempEpubPath, '--verbose']);
+                        await runShellCommand('xvfb-run', ['-a', 'ebook-convert', recipePath, tempEpubPath, '--extra-customization', `url=${job.url}`]);
                         fileBuffer = await fs.readFile(tempEpubPath);
                         
                         // Guardar en caché para futuras solicitudes
@@ -1200,7 +1199,7 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
     let bookSummary = null;
 
     // --- Detección de idioma ---
-    let shouldTranslate = options.translate !== false; // Traducir a menos que esté explícitamente desactivado
+    let shouldTranslate = options.translate !== false; // Traducir a menos que esté explícitamente desactivado.
     await onProgress('Paso 2/4: Detectando idioma...');
 
     // 1. Intentar con los metadatos (más rápido)
