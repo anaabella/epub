@@ -24,6 +24,8 @@ const { JSDOM } = require('jsdom'); // Para DOMParser y XMLSerializer en Node.js
 const express = require('express');
 const { Low } = require('lowdb');
 const { JSONFile } = require('lowdb/node');
+const { franc } = require('franc');
+const translate = require('translate');
 
 // --- 2. Configuración del Token ---
 // ¡NO PONGAS TU CLAVE AQUÍ! Lee la variable de entorno que configuraste.
@@ -106,7 +108,8 @@ const defaultOptions = {
     fixPunctuation: true,
     fixSpacing: true,
     removeEmptyP: true,
-    removeStyles: true
+    removeStyles: true,
+    translate: false
 };
 
 // Función para generar el teclado de opciones dinámicamente.
@@ -120,6 +123,7 @@ function generateOptionsKeyboard(options) {
             case 'removeGoogle':   return `${emoji} Quitar "Traducido por..."`;
             case 'fixPunctuation': return `${emoji} Corregir puntuación`;
             case 'fixSpacing':     return `${emoji} Corregir espaciado`;
+            case 'translate':      return `${emoji} Traducir a Español`;
             default:               return '';
         }
     };
@@ -131,6 +135,7 @@ function generateOptionsKeyboard(options) {
         [ { text: getLabel('removeGoogle'), callback_data: 'toggle_removeGoogle' } ],
         [ { text: getLabel('fixPunctuation'), callback_data: 'toggle_fixPunctuation' } ],
         [ { text: getLabel('fixSpacing'), callback_data: 'toggle_fixSpacing' } ],
+        [ { text: getLabel('translate'), callback_data: 'toggle_translate' } ],
         [ { text: 'Hecho. Ahora envía tu archivo.', callback_data: 'done_selecting' } ],
         [ { text: 'Resetear a valores por defecto', callback_data: 'reset_options' } ]
     ];
@@ -200,6 +205,7 @@ bot.on('callback_query', async (callbackQuery) => {
         userOptions.fixSpacing = defaultOptions.fixSpacing;
         userOptions.removeEmptyP = defaultOptions.removeEmptyP;
         userOptions.removeStyles = defaultOptions.removeStyles;
+        userOptions.translate = defaultOptions.translate;
 
         // Actualizamos el teclado para reflejar el cambio
         bot.editMessageReplyMarkup({
@@ -393,7 +399,7 @@ bot.on('document', async (msg) => {
             const processedBuffer = await processEpubBuffer(fileBuffer, options, onProgress);
 
             // 3. Enviar el archivo de vuelta
-            const newFileName = file.file_name.replace('.epub', '_limpio.epub');
+            const newFileName = options.translate ? file.file_name.replace('.epub', '_traducido.epub') : file.file_name.replace('.epub', '_limpio.epub');
             await bot.sendDocument(chatId, processedBuffer, {}, {
                 filename: newFileName,
                 contentType: 'application/epub+zip'
@@ -532,6 +538,64 @@ function cleanTextNodes(doc, options, window) {
     return modified;
 }
 
+/**
+ * Traduce el contenido de un documento HTML a español.
+ * @param {Document} doc - El documento DOM a traducir.
+ * @param {object} window - El objeto window de JSDOM.
+ * @returns {Promise<boolean>} - `true` si se realizó la traducción, de lo contrario `false`.
+ */
+async function translateDocument(doc, window) {
+    const textToTranslate = [];
+    const walker = doc.createTreeWalker(doc.body, window.NodeFilter.SHOW_TEXT, null, false);
+    let node;
+    while (node = walker.nextNode()) {
+        if (node.nodeValue.trim()) {
+            textToTranslate.push(node);
+        }
+    }
+
+    if (textToTranslate.length === 0) {
+        return false;
+    }
+
+    // Unimos todos los textos para una única llamada a la API
+    const originalTexts = textToTranslate.map(node => node.nodeValue);
+    const combinedText = originalTexts.join('\n---\n');
+
+    try {
+        const translatedText = await translate(combinedText, { to: 'es' });
+        const translatedParts = translatedText.split('\n---\n');
+
+        if (originalTexts.length === translatedParts.length) {
+            textToTranslate.forEach((node, index) => {
+                node.nodeValue = translatedParts[index];
+            });
+            return true;
+        }
+    } catch (error) {
+        console.error('Error al traducir:', error);
+    }
+
+    return false;
+}
+
+/**
+ * Obtiene el idioma del libro desde el archivo .opf.
+ * @param {JSZip} zip - El objeto zip del .epub.
+ * @returns {Promise<string|null>} - El código de idioma (ej. 'en') o null si no se encuentra.
+ */
+async function getLanguageFromOPF(zip) {
+    const opfFile = Object.values(zip.files).find(file => file.name.endsWith('.opf'));
+    if (opfFile) {
+        const content = await opfFile.async('string');
+        const match = content.match(/<dc:language>(.*?)<\/dc:language>/);
+        if (match && match[1]) {
+            return match[1];
+        }
+    }
+    return null;
+}
+
 // --- 5. Lógica de Procesamiento (Adaptada de la PWA) ---
 
 /**
@@ -549,7 +613,7 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
     const serializer = new window.XMLSerializer();
     
     // 1. Cargar desde el Buffer
-    await onProgress('Paso 1/3: Descomprimiendo el .epub...');
+    await onProgress('Paso 1/4: Descomprimiendo el .epub...');
     console.log('Cargando y descomprimiendo el .epub...');
     const zip = await jszip.loadAsync(buffer);
     
@@ -559,7 +623,19 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
     const filesToRemove = [];
     const parsingErrors = [];
 
-    await onProgress('Paso 2/3: Limpiando archivos de texto...');
+    // --- Detección de idioma ---
+    let bookLanguage = null;
+    if (options.translate) {
+        await onProgress('Paso 2/4: Detectando idioma...');
+        bookLanguage = await getLanguageFromOPF(zip);
+        console.log(`Idioma detectado: ${bookLanguage}`);
+        if (bookLanguage && bookLanguage.startsWith('es')) {
+            options.translate = false; // No traducir si ya está en español
+            console.log('El libro ya está en español. No se traducirá.');
+        }
+    }
+
+    await onProgress('Paso 3/4: Limpiando archivos de texto...');
     // 2. Iterar sobre cada archivo en el zip
     zip.forEach((relativePath, zipEntry) => {
         const isImage = /\.(jpe?g|png|gif|svg|webp)$/i.test(zipEntry.name);
@@ -595,6 +671,14 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
                             modified = true;
                         }
 
+                        // --- Traducción ---
+                        if (options.translate) {
+                            await onProgress('Traduciendo texto...');
+                            if (await translateDocument(doc, window)) {
+                                modified = true;
+                            }
+                        }
+
                         // 5. Si se hizo CUALQUIER modificación, guardar el archivo
                         if (modified) {
                             filesModifiedCount++;
@@ -625,6 +709,6 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
     console.log(`Proceso completado: ${imagesRemovedCount} imágenes quitadas, ${filesModifiedCount} archivos modificados.`);
     
     // 5. Generar como Buffer para Node.js
-    await onProgress('Paso 3/3: Reempaquetando el archivo...');
+    await onProgress('Paso 4/4: Reempaquetando el archivo...');
     return zip.generateAsync({ type: 'nodebuffer' });
 }
