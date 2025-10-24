@@ -645,14 +645,13 @@ async function handleError(err, chatId, statusMessage) {
     }
 }
 
-const runShellCommand = (cmd) => new Promise((resolve, reject) => {
-    const [command, ...args] = cmd.split(' ');
+const runShellCommand = (command, args = []) => new Promise((resolve, reject) => {
     const child = require('child_process').spawn(command, args);
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (data) => stdout += data);
     child.stderr.on('data', (data) => stderr += data);
-    child.on('close', (code) => code === 0 ? resolve(stdout) : reject(new Error(stderr || stdout)));
+    child.on('close', (code) => code === 0 ? resolve(stdout) : reject(new Error(stderr || `Command failed with code ${code}: ${stdout}`)));
 });
 
 // --- 5. Listeners de Contenido ---
@@ -708,7 +707,7 @@ async function sendProcessedFile(chatId, processedBuffer, wasTranslated, bookSum
         await fs.writeFile(tempEpubPath, processedBuffer);
 
         try {
-            await runShellCommand(`ebook-convert "${tempEpubPath}" "${tempOutputPath}"`);
+            await runShellCommand('ebook-convert', [tempEpubPath, tempOutputPath]);
             finalBuffer = await fs.readFile(tempOutputPath);
             finalFileName = `${finalFileNameBase}_${wasTranslated ? 'traducido' : 'limpio'}.${outputFormat}`;
         } catch (error) { // Error en la conversión final
@@ -793,7 +792,7 @@ async function processUserQueue(chatId) {
                         const tempEpubPath = path.join(tempDir, `download_${Date.now()}.epub`);
                         
                         await onProgress(`Descargando historia de ${new URL(job.url).hostname}...`);
-                        await runShellCommand(`ebook-convert`, [job.url, tempEpubPath]);
+                        await runShellCommand('ebook-convert', [job.url, tempEpubPath]);
                         fileBuffer = await fs.readFile(tempEpubPath);
                         
                         // Guardar en caché para futuras solicitudes
@@ -884,7 +883,7 @@ bot.on('document', async (msg) => {
                 await fs.writeFile(inputPath, fileBuffer);
 
                 try { // Este bloque maneja la conversión de PDF, MOBI, AZW3, TXT a EPUB
-                    await runShellCommand(`ebook-convert "${inputPath}" "${epubPath}"`);
+                    await runShellCommand('ebook-convert', [inputPath, epubPath]);
                     fileBuffer = await fs.readFile(epubPath);
                     originalFileName = originalFileName.replace(fileExtension, '.epub');
                 } catch (error) {
@@ -908,7 +907,7 @@ bot.on('document', async (msg) => {
                 type: 'file',
                 fileBuffer: fileBuffer.toJSON(), // Convertir Buffer a formato serializable
                 originalFileName: originalFileName,
-                options: jobOptions // Usar las opciones limpias
+                options: { ...jobOptions, chatId } // Usar las opciones limpias y añadir chatId
             };
             await addJobToQueue(chatId, job);
 
@@ -950,7 +949,7 @@ async function handleUrlInput(msg, url) {
         type: 'url',
         url: url,
         originalFileName: new URL(url).hostname, // Nombre temporal, se actualizará al descargar
-        options: jobOptions // Usar las opciones limpias
+        options: { ...jobOptions, chatId } // Usar las opciones limpias y añadir chatId
     };
     await addJobToQueue(chatId, job);
 }
