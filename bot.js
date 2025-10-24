@@ -646,7 +646,13 @@ async function handleError(err, chatId, statusMessage) {
 }
 
 const runShellCommand = (cmd) => new Promise((resolve, reject) => {
-    require('child_process').exec(cmd, (error, stdout, stderr) => error ? reject(new Error(stderr || stdout)) : resolve(stdout));
+    const [command, ...args] = cmd.split(' ');
+    const child = require('child_process').spawn(command, args);
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (data) => stdout += data);
+    child.stderr.on('data', (data) => stderr += data);
+    child.on('close', (code) => code === 0 ? resolve(stdout) : reject(new Error(stderr || stdout)));
 });
 
 // --- 5. Listeners de Contenido ---
@@ -787,7 +793,7 @@ async function processUserQueue(chatId) {
                         const tempEpubPath = path.join(tempDir, `download_${Date.now()}.epub`);
                         
                         await onProgress(`Descargando historia de ${new URL(job.url).hostname}...`);
-                        await runShellCommand(`ebook-convert "${job.url}" "${tempEpubPath}"`);
+                        await runShellCommand(`ebook-convert`, [job.url, tempEpubPath]);
                         fileBuffer = await fs.readFile(tempEpubPath);
                         
                         // Guardar en caché para futuras solicitudes
