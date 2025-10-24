@@ -310,7 +310,7 @@ bot.on('message', async (msg) => {
         // Si no se cumplen las condiciones, no hacemos nada y dejamos que otros listeners (como on 'document') actúen.
         return;
     }
-    
+
     try {
         const lines = msg.text.split('\n').filter(line => line.trim() !== '');
         const replacements = [];
