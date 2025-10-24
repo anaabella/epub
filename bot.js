@@ -26,6 +26,8 @@ const { Low } = require('lowdb');
 const { JSONFile } = require('lowdb/node');
 const { franc } = require('franc');
 const translate = require('translate');
+const fs = require('fs').promises;
+const path = require('path');
 
 // --- 2. Configuración del Token ---
 // ¡NO PONGAS TU CLAVE AQUÍ! Lee la variable de entorno que configuraste.
@@ -331,63 +333,66 @@ bot.on('document', async (msg) => {
     // Ensure the main userStates object exists in the database.
     db.data.userStates ||= {};
 
-    if (file.file_name && file.file_name.endsWith('.epub')) {
-        // --- MANEJO DE ARCHIVO .EPUB ---
-        // Guardaremos el mensaje de estado para poder editarlo o borrarlo.
+    if (file.file_name && (file.file_name.endsWith('.epub') || file.file_name.endsWith('.pdf'))) {
         let statusMessage;
         try {
             statusMessage = await bot.sendMessage(chatId, `Iniciando proceso para "${file.file_name}"...`);
 
-            // --- Función de callback para actualizar el progreso ---
             let lastProgressText = '';
             const onProgress = async (text) => {
-                // Evitamos llamadas innecesarias a la API si el texto no ha cambiado.
                 if (text === lastProgressText) return;
                 try {
-                    await bot.editMessageText(text, {
-                        chat_id: chatId,
-                        message_id: statusMessage.message_id
-                    });
+                    await bot.editMessageText(text, { chatId, message_id: statusMessage.message_id });
                     lastProgressText = text;
                 } catch (e) {
-                    // Ignoramos el error común "message is not modified"
                     if (!e.message.includes('message is not modified')) {
                         console.warn('No se pudo editar el mensaje de progreso:', e.message);
                     }
                 }
             };
-            
-            // --- INICIO DE CAMBIO: Método de descarga robusto ---
+
             await onProgress('Descargando archivo...');
-            // 1. Descargar el archivo usando fetch (más estable que getFileStream)
-            
-            // Primero, obtenemos los detalles del archivo
             const fileDetails = await bot.getFile(file.file_id);
-            // Construimos la URL de descarga directa
             const fileUrl = `https://api.telegram.org/file/bot${token}/${fileDetails.file_path}`;
 
-            // Añadimos un controlador para cancelar la descarga si tarda demasiado (timeout)
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 segundos de timeout
+            const timeoutId = setTimeout(() => controller.abort(), 60000);
 
-            // Usamos fetch (nativo en Node.js 18+) para descargar
             const response = await fetch(fileUrl, { signal: controller.signal });
-            clearTimeout(timeoutId); // Si la descarga funciona, limpiamos el timeout
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
                 throw new Error(`Error al descargar el archivo: ${response.statusText}`);
             }
 
-            // Convertimos la respuesta en un ArrayBuffer
             const arrayBuffer = await response.arrayBuffer();
-            // Convertimos el ArrayBuffer a un Buffer de Node.js
-            const fileBuffer = Buffer.from(arrayBuffer);
-            // --- FIN DE CAMBIO ---
+            let fileBuffer = Buffer.from(arrayBuffer);
+            let originalFileName = file.file_name;
 
-            console.log(`Archivo ${file.file_name} descargado.`);
+            if (file.file_name.endsWith('.pdf')) {
+                await onProgress('Convirtiendo PDF a EPUB...');
+                const tempDir = './temp';
+                await fs.mkdir(tempDir, { recursive: true });
+                const pdfPath = path.join(tempDir, file.file_name);
+                const epubPath = pdfPath.replace('.pdf', '.epub');
 
-            // 2. Procesar el archivo (con todas las opciones por defecto)
-            // Usamos las opciones guardadas del usuario, o las por defecto si no ha configurado nada.
+                await fs.writeFile(pdfPath, fileBuffer);
+
+                try {
+                    await runShellCommand(`ebook-convert "${pdfPath}" "${epubPath}"`);
+                    fileBuffer = await fs.readFile(epubPath);
+                    originalFileName = originalFileName.replace('.pdf', '.epub');
+                } catch (error) {
+                    console.error('Error en la conversión de PDF a EPUB:', error);
+                    throw new Error('No se pudo convertir el archivo PDF a EPUB. Asegúrate de que Calibre esté instalado en el entorno de ejecución.');
+                } finally {
+                    await fs.unlink(pdfPath).catch(e => console.warn(`No se pudo borrar el archivo temporal: ${pdfPath}`, e));
+                    await fs.unlink(epubPath).catch(e => console.warn(`No se pudo borrar el archivo temporal: ${epubPath}`, e));
+                }
+            }
+
+            console.log(`Archivo ${originalFileName} descargado y listo para procesar.`);
+
             if (!db.data.userStates[chatId]) {
                 db.data.userStates[chatId] = { ...defaultOptions, singleUseReplacements: [] };
             }
@@ -395,20 +400,16 @@ bot.on('document', async (msg) => {
             const optionsCount = Object.values(options).filter(v => v).length;
             console.log(`Aplicando ${optionsCount} opciones de limpieza para el chat ${chatId}.`);
 
-
             const processedBuffer = await processEpubBuffer(fileBuffer, options, onProgress);
 
-            // 3. Enviar el archivo de vuelta
-            const newFileName = options.translate ? file.file_name.replace('.epub', '_traducido.epub') : file.file_name.replace('.epub', '_limpio.epub');
+            const newFileName = options.translate ? originalFileName.replace('.epub', '_traducido.epub') : originalFileName.replace('.epub', '_limpio.epub');
             await bot.sendDocument(chatId, processedBuffer, {}, {
                 filename: newFileName,
                 contentType: 'application/epub+zip'
             });
 
-            // 4. Limpiar el mensaje de estado
             await bot.deleteMessage(chatId, statusMessage.message_id);
 
-            // 5. Limpiar las reglas de un solo uso después de aplicarlas
             if (db.data.userStates[chatId] && db.data.userStates[chatId].singleUseReplacements) {
                 db.data.userStates[chatId].singleUseReplacements = [];
                 await db.write();
@@ -419,14 +420,13 @@ bot.on('document', async (msg) => {
         } catch (err) {
             handleError(err, chatId, statusMessage);
         } finally {
-            // Limpiamos las reglas de un solo uso, incluso si hubo un error.
             if (db.data.userStates[chatId] && db.data.userStates[chatId].singleUseReplacements.length > 0) {
                 db.data.userStates[chatId].singleUseReplacements = [];
                 await db.write();
             }
         }
     } else {
-        await bot.sendMessage(chatId, "Por favor, envíame un archivo que termine en .epub.");
+        await bot.sendMessage(chatId, "Por favor, envíame un archivo que termine en .epub o .pdf.");
     }
 });
 
