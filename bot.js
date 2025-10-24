@@ -354,46 +354,6 @@ const runShellCommand = (cmd) => new Promise((resolve, reject) => {
 
 // --- 5. Listeners de Contenido ---
 
-// Listener para mensajes de texto (para capturar las reglas de reemplazo)
-// Usamos onText(/.*/) para que solo se active con mensajes de texto y no interfiera con los documentos.
-bot.onText(/.*/, async (msg) => {
-    const chatId = msg.chat.id;
-
-    // Ignorar si es un comando, ya que tienen sus propios listeners (onText con regex específicas)
-    if (msg.text.startsWith('/')) {
-        return;
-    }
-
-    // Solo actuar si el usuario está esperando reglas.
-    if (!db.data.userStates?.[chatId]?.isWaitingForReplacements) {
-        return;
-    }
-
-    try {
-        const lines = msg.text.split('\n').filter(line => line.trim() !== '');
-        const replacements = [];
-
-        for (const line of lines) {
-            const parts = line.split(',');
-            if (parts.length >= 2) {
-                const original = parts[0].trim();
-                const replacement = parts.slice(1).join(',').trim();
-                if (original) {
-                    replacements.push({ original, replacement });
-                }
-            }
-        }
-
-        db.data.userStates[chatId].singleUseReplacements = replacements;
-        db.data.userStates[chatId].isWaitingForReplacements = false; // Salir del modo de espera
-        await db.write();
-
-        await bot.sendMessage(chatId, `✅ ¡${replacements.length} reglas de reemplazo guardadas para el próximo libro! Ahora, envía tu archivo .epub.`);
-    } catch (err) {
-        await bot.sendMessage(chatId, `Ocurrió un error al procesar tus reglas: ${err.message}`);
-    }
-});
-
 // Responde cuando alguien envía un documento
 bot.on('document', async (msg) => {
     const chatId = msg.chat.id;
@@ -568,6 +528,46 @@ bot.onText(wattpadUrlRegex, async (msg) => {
         if (epubPath) {
             await fs.unlink(epubPath).catch(e => console.warn(`No se pudo borrar el archivo temporal: ${epubPath}`, e));
         }
+    }
+});
+
+// Listener para mensajes de texto (para capturar las reglas de reemplazo)
+// Este listener debe ir al FINAL para no interferir con los comandos.
+bot.onText(/.*/, async (msg) => {
+    const chatId = msg.chat.id;
+
+    // Ignorar si es un comando, ya que tienen sus propios listeners (onText con regex específicas)
+    if (msg.text.startsWith('/')) {
+        return;
+    }
+
+    // Solo actuar si el usuario está esperando reglas.
+    if (!db.data.userStates?.[chatId]?.isWaitingForReplacements) {
+        return;
+    }
+
+    try {
+        const lines = msg.text.split('\n').filter(line => line.trim() !== '');
+        const replacements = [];
+
+        for (const line of lines) {
+            const parts = line.split(',');
+            if (parts.length >= 2) {
+                const original = parts[0].trim();
+                const replacement = parts.slice(1).join(',').trim();
+                if (original) {
+                    replacements.push({ original, replacement });
+                }
+            }
+        }
+
+        db.data.userStates[chatId].singleUseReplacements = replacements;
+        db.data.userStates[chatId].isWaitingForReplacements = false; // Salir del modo de espera
+        await db.write();
+
+        await bot.sendMessage(chatId, `✅ ¡${replacements.length} reglas de reemplazo guardadas para el próximo libro! Ahora, envía tu archivo .epub.`);
+    } catch (err) {
+        await bot.sendMessage(chatId, `Ocurrió un error al procesar tus reglas: ${err.message}`);
     }
 });
 
