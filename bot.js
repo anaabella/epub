@@ -96,7 +96,6 @@ const start = async () => {
             { command: 'limpiar', description: 'Personaliza las opciones de limpieza' },
             { command: 'reemplazar', description: 'Añade reglas para el próximo libro' },
             { command: 'metadata', description: 'Edita los metadatos del próximo libro (título, autor)' },
-            { command: 'perfiles', description: 'Guarda y gestiona tus perfiles de limpieza' },
             { command: 'css', description: 'Inyecta CSS personalizado en el próximo libro' }, // Nuevo comando
             { command: 'diccionario', description: 'Gestiona tus diccionarios de reemplazo persistentes' },
             { command: 'help', description: 'Muestra la ayuda detallada' },
@@ -136,8 +135,7 @@ const defaultOptions = {
     translate: false,
     removeHyperlinks: false,
     removeFootnotes: false,
-    optimizeImages: false,
-    extractCoverOnly: false // Nueva opción para extraer solo la portada
+    optimizeImages: false // Nueva opción para optimizar imágenes
 };
 
 // Función para generar el teclado de opciones dinámicamente.
@@ -154,7 +152,6 @@ function generateOptionsKeyboard(options) {
             case 'removeHyperlinks': return `${emoji} Quitar hipervínculos`;
             case 'removeFootnotes': return `${emoji} Quitar notas al pie`;
             case 'optimizeImages': return `${emoji} Optimizar imágenes`;
-            case 'extractCoverOnly': return `${emoji} Solo extraer portada`;
             case 'translate':      return `${emoji} Traducir a Español`;
             case 'generateSummary': return `${emoji} Generar resumen con IA`;
             default:               return '';
@@ -174,7 +171,6 @@ function generateOptionsKeyboard(options) {
         [ { text: getLabel('removeHyperlinks'), callback_data: 'toggle_removeHyperlinks' } ],
         [ { text: getLabel('removeFootnotes'), callback_data: 'toggle_removeFootnotes' } ],
         [ { text: getLabel('optimizeImages'), callback_data: 'toggle_optimizeImages' } ],
-        [ { text: getLabel('extractCoverOnly'), callback_data: 'toggle_extractCoverOnly' } ],
         [ { text: getLabel('translate'), callback_data: 'toggle_translate' } ], // Keep this to enable/disable translation
         [ { text: getLabel('generateSummary'), callback_data: 'toggle_generateSummary' } ], // New button
         [ { text: 'Guardar como mis opciones por defecto', callback_data: 'save_default_options' } ], // Nuevo botón
@@ -329,41 +325,6 @@ bot.on('callback_query', async (callbackQuery) => {
                 await bot.deleteMessage(chatId, msg.message_id);
             }
             await bot.answerCallbackQuery(callbackQuery.id);
-        } else if (data.startsWith('profile_')) {
-            const parts = data.split('_');
-            const action = parts[1];
-            const profileName = parts.slice(2).join('_');
-
-            if (action === 'load') {
-                if (userOptions.profiles?.[profileName]) {
-                    Object.assign(userOptions, userOptions.profiles[profileName]);
-                    await db.write();
-                    await bot.answerCallbackQuery(callbackQuery.id, { text: `Perfil "${profileName}" cargado.` });
-                    await bot.deleteMessage(chatId, msg.message_id);
-                    await bot.sendMessage(chatId, `Configuración del perfil "${profileName}" cargada. Ahora puedes enviar tu archivo o usar /limpiar para ver/modificar las opciones.`);
-                }
-            } else if (action === 'delete') {
-                if (userOptions.profiles?.[profileName]) {
-                    delete userOptions.profiles[profileName];
-                    await db.write();
-                    await bot.answerCallbackQuery(callbackQuery.id, { text: `Perfil "${profileName}" eliminado.` });
-                    await bot.editMessageReplyMarkup({ inline_keyboard: generateProfilesKeyboard(chatId) }, { chat_id: chatId, message_id: msg.message_id });
-                }
-            } else if (action === 'save') {
-                userOptions.isWaitingForProfileName = true;
-                await db.write();
-                await bot.sendMessage(chatId, "Por favor, envía el nombre para guardar tu configuración actual como un nuevo perfil.");
-                await bot.deleteMessage(chatId, msg.message_id);
-            } else if (action === 'close') {
-                await bot.deleteMessage(chatId, msg.message_id);
-            } else if (action === 'back') {
-                await bot.deleteMessage(chatId, msg.message_id);
-                // Simular llamada a /limpiar
-                bot.emit('text', { ...msg, text: '/limpiar' });
-            } else if (action === 'close') {
-                await bot.deleteMessage(chatId, msg.message_id);
-            }
-            await bot.answerCallbackQuery(callbackQuery.id);
         } else if (data === 'toggle_generateSummary') {
             userOptions.generateSummary = !userOptions.generateSummary;
             await db.write();
@@ -412,7 +373,7 @@ bot.onText(/\/help/, async (msg) => {
                             "- `/reemplazar`: Permite definir reglas de reemplazo para el próximo libro.\n\n" +
                             "*🧹 OPCIONES DE LIMPIEZA*\n" +
                             "- `/metadata`: Edita el título y autor del próximo libro.\n\n" +
-                            "*🌐 SITIOS WEB SOPORTADOS*\n" + "Actualmente, puedo descargar historias de Wattpad, Archive of Our Own (AO3), FanFiction.net y Tumblr.\n\n" +
+                            "*🌐 SITIOS WEB SOPORTADOS*\n" + "Actualmente, puedo descargar historias de Wattpad, Archive of Our Own (AO3), FanFiction.net, Tumblr y Twitter/X.\n\n" +
                             "- *Elimino imágenes:* Quito todas las imágenes (jpg, png, etc.) para reducir el tamaño del archivo.\n" +
                             "- *Elimino estilos:* Borro todos los estilos en línea (colores, tamaños de fuente, etc.) para un formato más limpio.\n" +
                             "- *Elimino párrafos vacíos:* Quito los párrafos que no contienen texto ni elementos.\n\n" +
@@ -506,40 +467,6 @@ bot.onText(/\/css/, async (msg) => {
     }
 });
 
-function generateProfilesKeyboard(chatId) {
-    const userState = db.data.userStates?.[chatId];
-    const profiles = userState?.profiles || {};
-    const keyboard = [];
-
-    if (Object.keys(profiles).length > 0) {
-        for (const profileName in profiles) {
-            keyboard.push([
-                { text: `📂 ${profileName}`, callback_data: `no_op` }, // Non-clickable label
-                { text: '⬆️ Cargar', callback_data: `profile_load_${profileName}` },
-                { text: '🗑️ Eliminar', callback_data: `profile_delete_${profileName}` }
-            ]);
-        }
-    } else {
-        keyboard.push([{ text: "No tienes perfiles guardados.", callback_data: "no_op" }]);
-    }
-
-    keyboard.push([{ text: '➕ Guardar configuración actual', callback_data: 'profile_save' }]);
-    keyboard.push([{ text: '🔙 Volver', callback_data: 'profile_back' }]);
-
-    return keyboard;
-}
-
-bot.onText(/\/perfiles/, async (msg) => {
-    const chatId = msg.chat.id;
-    logEvent(`Usuario ${msg.from.id} (${msg.from.username || msg.from.first_name}) usó /perfiles.`);
-    if (!db.data.userStates?.[chatId]) {
-        db.data.userStates[chatId] = { ...defaultOptions, singleUseReplacements: [], processingQueue: [] };
-    }
-    const keyboard = generateProfilesKeyboard(chatId);
-    await bot.sendMessage(chatId, "Gestiona tus perfiles de limpieza:", {
-        reply_markup: { inline_keyboard: keyboard }
-    });
-});
 
 function generateDictionaryKeyboard(chatId) {
     const userState = db.data.userStates?.[chatId];
@@ -806,39 +733,6 @@ async function sendProcessedFile(chatId, processedBuffer, wasTranslated, bookSum
     logEvent(`Chat ${chatId}: Archivo "${finalFileName}" enviado.`);
 }
 // --- Funciones para la cola de procesamiento ---
-
-async function extractAndSendCover(chatId, fileBuffer, statusMessage) {
-    await bot.editMessageText('Extrayendo portada...', { chat_id: statusMessage.chat.id, message_id: statusMessage.message_id });
-    const jszip = new JSZip();
-    const zip = await jszip.loadAsync(fileBuffer);
-
-    const opfFile = Object.values(zip.files).find(file => file.name.endsWith('.opf'));
-    if (!opfFile) {
-        throw new Error("No se pudo encontrar el archivo .opf en el EPUB.");
-    }
-
-    const opfContent = await opfFile.async('string');
-    const coverMetaMatch = opfContent.match(/<meta\s+name="cover"\s+content="([^"]+)"/);
-    if (!coverMetaMatch || !coverMetaMatch[1]) {
-        throw new Error("No se pudo encontrar la referencia a la portada en los metadatos del EPUB.");
-    }
-    const coverId = coverMetaMatch[1];
-
-    const coverItemMatch = opfContent.match(new RegExp(`<item\\s+id="${coverId}"[^>]+href="([^"]+)"`));
-    if (!coverItemMatch || !coverItemMatch[1]) {
-        throw new Error("No se pudo encontrar la ruta de la imagen de portada en el manifiesto del EPUB.");
-    }
-    const coverPath = path.join(path.dirname(opfFile.name), coverItemMatch[1]);
-
-    const coverFile = zip.file(coverPath);
-    if (!coverFile) {
-        throw new Error(`El archivo de portada "${coverPath}" no existe dentro del EPUB.`);
-    }
-
-    const coverBuffer = await coverFile.async('nodebuffer');
-    await bot.sendPhoto(chatId, coverBuffer);
-    await bot.deleteMessage(chatId, statusMessage.message_id);
-}
 const userProcessingStatus = {}; // Para rastrear si un usuario está procesando actualmente
 
 async function processUserQueue(chatId) {
@@ -873,14 +767,6 @@ async function processUserQueue(chatId) {
                 let originalFileName = job.originalFileName;
 
                 if (job.type === 'file') {
-                    // Si la opción es solo extraer la portada, hacerlo y saltar el resto
-                    if (job.options.extractCoverOnly) {
-                        logEvent(`Chat ${chatId}: Iniciando extracción de portada para "${originalFileName}".`);
-                        const fileBuffer = Buffer.from(job.fileBuffer.data);
-                        await extractAndSendCover(chatId, fileBuffer, statusMessage);
-                        continue; // Saltar al siguiente trabajo en la cola
-                    }
-
                     fileBuffer = Buffer.from(job.fileBuffer.data); // Re-create buffer from JSON data
                 } else if (job.type === 'url') {
                     const cacheDir = './cache';
@@ -908,22 +794,17 @@ async function processUserQueue(chatId) {
                         await fs.writeFile(cachedFilePath, fileBuffer);
                         await fs.unlink(tempEpubPath).catch(e => console.warn(`No se pudo borrar el archivo temporal: ${tempEpubPath}`, e));
                     }
-
-                    // Si la opción es solo extraer la portada, hacerlo y saltar el resto
-                    if (job.options.extractCoverOnly) {
-                        logEvent(`Chat ${chatId}: Iniciando extracción de portada para URL: ${job.url}`);
-                        await extractAndSendCover(chatId, fileBuffer, statusMessage);
-                        continue; // Saltar al siguiente trabajo en la cola
-                    }
-
-
+                    
+                    // Intentar extraer el título del EPUB descargado para un nombre de archivo más descriptivo
                     try {
-                        const storyTitleMatch = (await fs.readFile(epubPath, 'utf-8')).match(/<dc:title>(.*?)<\/dc:title>/);
+                        const zip = await new JSZip().loadAsync(fileBuffer);
+                        const opfFile = Object.values(zip.files).find(file => file.name.endsWith('.opf'));
+                        const opfContent = await opfFile.async('string');
+                        const storyTitleMatch = opfContent.match(/<dc:title>(.*?)<\/dc:title>/);
                         if (storyTitleMatch && storyTitleMatch[1]) {
                             originalFileName = `${storyTitleMatch[1].replace(/[/\\?%*:|"<>]/g, '-')}.epub`; // Limpiar nombre de archivo
                         }
                     } catch (e) { console.warn("No se pudo leer el título del EPUB, se usará un nombre genérico."); }
-                    await fs.unlink(epubPath).catch(e => console.warn(`No se pudo borrar el archivo temporal: ${epubPath}`, e));
                 }
 
                 const [processedBuffer, wasTranslated, bookSummary] = await processEpubBuffer(fileBuffer, job.options, onProgress);
@@ -1031,6 +912,7 @@ const wattpadUrlRegex = /https?:\/\/(www\.)?wattpad\.com\/(?:story\/)?(\d+)/;
 const ao3UrlRegex = /https?:\/\/(www\.)?archiveofourown\.org\/works\/(\d+)/;
 const fanfictionNetUrlRegex = /https?:\/\/(www\.)?fanfiction\.net\/s\/(\d+)/;
 const tumblrUrlRegex = /https?:\/\/(?:www\.)?([a-zA-Z0-9\-]+\.)?tumblr\.com\/post\/(\d+)(?:\/[^\s\/]+)?/; // Regex para posts de Tumblr
+const twitterUrlRegex = /https?:\/\/(?:www\.)?(?:twitter|x)\.com\/[a-zA-Z0-9_]+\/status\/(\d+)/; // Regex para posts de Twitter/X
 
 async function handleUrlInput(msg, url) {
     const chatId = msg.chat.id;
@@ -1064,6 +946,10 @@ bot.onText(fanfictionNetUrlRegex, async (msg, match) => {
 });
 
 bot.onText(tumblrUrlRegex, async (msg, match) => {
+    await handleUrlInput(msg, match[0]);
+});
+
+bot.onText(twitterUrlRegex, async (msg, match) => {
     await handleUrlInput(msg, match[0]);
 });
 
@@ -1441,6 +1327,3 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
 
     return [finalBuffer, shouldTranslate, bookSummary];
 }
-
-// --- 6. Inicio del Bot ---
-start();
