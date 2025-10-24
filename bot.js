@@ -67,7 +67,8 @@ const start = async () => {
         db.data ||= { userStates: {} };
         await db.write();
 
-        const webhookUrl = `${url}/bot${token}`;
+        // Aseguramos que no haya dobles barras si la URL ya termina con una.
+        const webhookUrl = `${url.replace(/\/$/, '')}/bot${token}`;
         // 1. Configurar el webhook y esperar la confirmación de Telegram
         await bot.setWebHook(webhookUrl);
         console.log(`¡Webhook configurado exitosamente en ${webhookUrl}!`);
