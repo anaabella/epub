@@ -1,8 +1,19 @@
 FROM node:20
 
-# Install Calibre
-RUN apt-get update && apt-get install -y wget xz-utils
-RUN wget -nv -O- https://download.calibre-ebook.com/linux-installer.sh | sh /dev/stdin
+# Install Calibre and its system dependencies
+# libegl1 and libopengl0 are required by the Calibre installer.
+# We also clean up the apt cache in the same layer to reduce image size.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
+    xz-utils \
+    libegl1 \
+    libopengl0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Run the Calibre installer non-interactively
+RUN wget -nv -O- https://download.calibre-ebook.com/linux-installer.sh | sh /dev/stdin --yes
+# Add Calibre to the system's PATH so `ebook-convert` can be found
+ENV PATH="/opt/calibre/bin:${PATH}"
 
 # Create app directory
 WORKDIR /usr/src/app

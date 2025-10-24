@@ -320,10 +320,22 @@ async function handleError(err, chatId, statusMessage) {
         await bot.sendMessage(chatId, `Lo siento, ocurrió un error inesperado: ${err.message}`);
     }
 
-    if (statusMessage) {
-        await bot.deleteMessage(chatId, statusMessage.message_id).catch(e => console.warn('No se pudo borrar el mensaje de estado tras un error:', e.message));
+    if (statusMessage && statusMessage.message_id) {
+        try {
+            await bot.deleteMessage(chatId, statusMessage.message_id);
+        } catch (e) {
+            // It's possible the message was already deleted or doesn't exist.
+            // We can ignore 'message to delete not found' errors.
+            if (!e.message.includes('message to delete not found')) {
+                console.warn('No se pudo borrar el mensaje de estado tras un error:', e.message);
+            }
+        }
     }
 }
+
+const runShellCommand = (cmd) => new Promise((resolve, reject) => {
+    require('child_process').exec(cmd, (error, stdout, stderr) => error ? reject(new Error(stderr || stdout)) : resolve(stdout));
+});
 
 // Responde cuando alguien envía un documento
 bot.on('document', async (msg) => {
@@ -430,7 +442,16 @@ bot.on('document', async (msg) => {
     }
 });
 
-// Ya no necesitamos la función downloadFileBuffer, así que la eliminamos.
+// --- Graceful Shutdown ---
+const signals = ['SIGINT', 'SIGTERM'];
+signals.forEach(signal => {
+    process.on(signal, async () => {
+        console.log(`\nRecibida señal ${signal}. Cerrando el bot...`);
+        await bot.stopPolling({ cancel: true }).catch(e => console.error('Error al detener el sondeo:', e));
+        console.log('Bot detenido. Saliendo.');
+        process.exit(0);
+    });
+});
 
 // --- 6. Funciones de Limpieza Modulares ---
 
