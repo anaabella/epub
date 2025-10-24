@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xz-utils \
     libegl1 \
     libopengl0 \
+    libxcb-cursor0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Run the Calibre installer non-interactively
