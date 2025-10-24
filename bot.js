@@ -138,6 +138,12 @@ const defaultOptions = {
     optimizeImages: false // Nueva opción para optimizar imágenes
 };
 
+// Definir los motores de traducción disponibles
+const TRANSLATION_ENGINES = [
+    { id: 'google', name: 'Google Translate' },
+    { id: 'deepl', name: 'DeepL' }
+];
+
 // Función para generar el teclado de opciones dinámicamente.
 function generateOptionsKeyboard(options) {
     const getLabel = (key) => {
@@ -737,6 +743,22 @@ async function sendProcessedFile(chatId, processedBuffer, wasTranslated, bookSum
     await bot.deleteMessage(chatId, statusMessage.message_id);
     logEvent(`Chat ${chatId}: Archivo "${finalFileName}" enviado.`);
 }
+
+/**
+ * Crea un archivo de receta de FanFicFare para una URL específica.
+ * @param {string} url - La URL de la historia a descargar.
+ * @param {string} recipePath - La ruta donde se guardará el archivo .recipe.
+ */
+async function createFanFicFareRecipe(url, recipePath) {
+    const recipeContent = `
+from calibre.web.recipes.fanfictionnet import FanFictionNetSite
+class GeneratedRecipe(FanFictionNetSite):
+    def __init__(self, *args):
+        FanFictionNetSite.__init__(self, *args)
+        self.story_url = '${url}'
+`;
+    await fs.writeFile(recipePath, recipeContent.trim());
+}
 // --- Funciones para la cola de procesamiento ---
 const userProcessingStatus = {}; // Para rastrear si un usuario está procesando actualmente
 
@@ -788,16 +810,24 @@ async function processUserQueue(chatId) {
                         // Si no está en caché, descargar
                         logEvent(`Cache: No se encontró archivo en caché. Descargando desde: ${job.url}`);
                         const tempDir = './temp';
+                        const recipeDir = './recipes';
                         await fs.mkdir(tempDir, { recursive: true });
+                        await fs.mkdir(recipeDir, { recursive: true });
+
                         const tempEpubPath = path.join(tempDir, `download_${Date.now()}.epub`);
+                        const recipePath = path.join(recipeDir, `recipe_${Date.now()}.recipe`);
                         
                         await onProgress(`Descargando historia de ${new URL(job.url).hostname}...`);
-                        await runShellCommand('ebook-convert', [job.url, tempEpubPath]);
+                        await createFanFicFareRecipe(job.url, recipePath);
+                        await runShellCommand('ebook-convert', [recipePath, tempEpubPath, '--verbose']);
                         fileBuffer = await fs.readFile(tempEpubPath);
                         
                         // Guardar en caché para futuras solicitudes
                         await fs.writeFile(cachedFilePath, fileBuffer);
-                        await fs.unlink(tempEpubPath).catch(e => console.warn(`No se pudo borrar el archivo temporal: ${tempEpubPath}`, e));
+                        await Promise.all([
+                            fs.unlink(tempEpubPath).catch(e => console.warn(`No se pudo borrar el archivo temporal: ${tempEpubPath}`, e)),
+                            fs.unlink(recipePath).catch(e => console.warn(`No se pudo borrar el archivo de receta: ${recipePath}`, e))
+                        ]);
                     }
                     
                     // Intentar extraer el título del EPUB descargado para un nombre de archivo más descriptivo
@@ -853,7 +883,7 @@ bot.on('document', async (msg) => {
     const fileExtension = path.extname(file.file_name).toLowerCase();
 
     if (file.file_name && allowedExtensions.includes(fileExtension)) {
-        let statusMessage;
+        let statusMessage, onProgress = async () => {};
         try {
             statusMessage = await bot.sendMessage(chatId, `Descargando "${file.file_name}"...`);
             const fileDetails = await bot.getFile(file.file_id);
@@ -872,6 +902,20 @@ bot.on('document', async (msg) => {
             let fileBuffer = Buffer.from(arrayBuffer);
             // Intentar obtener el título del libro para un nombre de archivo más descriptivo
             let originalFileName = file.file_name;
+
+            // Definir onProgress aquí para que esté disponible en este scope
+            let lastProgressText = '';
+            onProgress = async (text) => {
+                if (text === lastProgressText) return;
+                if (statusMessage && statusMessage.message_id && statusMessage.chat && statusMessage.chat.id) {
+                    try {
+                        await bot.editMessageText(text, { chat_id: statusMessage.chat.id, message_id: statusMessage.message_id });
+                        lastProgressText = text;
+                    } catch (e) {
+                        if (!e.message.includes('message is not modified')) console.warn('No se pudo editar el mensaje de progreso:', e.message);
+                    }
+                } else { logEvent(`Progreso (sin mensaje de estado válido): ${text}`); }
+            };
 
             if (fileExtension !== '.epub') { // Convertir a EPUB si no lo es
                 await onProgress(`Convirtiendo ${fileExtension.toUpperCase()} a EPUB...`);
@@ -924,7 +968,7 @@ bot.on('document', async (msg) => {
 const wattpadUrlRegex = /https?:\/\/(www\.)?wattpad\.com\/(?:story\/)?(\d+)/;
 const ao3UrlRegex = /https?:\/\/(www\.)?archiveofourown\.org\/works\/(\d+)/;
 const fanfictionNetUrlRegex = /https?:\/\/(www\.)?fanfiction\.net\/s\/(\d+)/;
-const tumblrUrlRegex = /https?:\/\/(?:www\.)?([a-zA-Z0-9\-]+\.)?tumblr\.com\/post\/(\d+)(?:\/[^\s\/]+)?/; // Regex para posts de Tumblr
+const tumblrUrlRegex = /https?:\/\/(?:www\.)?([a-zA-Z0-9\-]+\.)?tumblr\.com\/(?:[a-zA-Z0-9\-]+\/)?(\d+)/; // Regex para posts de Tumblr, más flexible
 const twitterUrlRegex = /https?:\/\/(?:www\.)?(?:twitter|x)\.com\/[a-zA-Z0-9_]+\/status\/(\d+)/; // Regex para posts de Twitter/X
 
 async function handleUrlInput(msg, url) {
@@ -1066,6 +1110,9 @@ signals.forEach(signal => {
  * @param {Document} doc - El documento DOM a traducir.
  * @param {object} window - El objeto window de JSDOM.
  * @returns {Promise<boolean>} - `true` si se realizó la traducción, de lo contrario `false`.
+ * Crea un archivo de configuración de traducción para Calibre.
+ * @param {string} configPath - La ruta donde se guardará el archivo .json.
+ * @param {object} options - Las opciones del usuario, que incluyen el motor y la clave API.
  */
 async function translateDocument(doc, window, options) {
     const textToTranslate = [];
@@ -1076,18 +1123,34 @@ async function translateDocument(doc, window, options) {
             textToTranslate.push(node);
         }
     }
+async function createTranslationConfig(configPath, options) {
+    const selectedEngine = options.translationEngine || 'google';
+    let apiKey = null;
 
     if (textToTranslate.length === 0) {
         return false;
+    if (selectedEngine === 'deepl') {
+        apiKey = process.env.DEEPL_KEY;
+        if (!apiKey) throw new Error('La clave de API de DeepL (DEEPL_KEY) no está configurada.');
     }
+    // Añadir más motores si es necesario
 
     // Unimos todos los textos para una única llamada a la API
     const originalTexts = textToTranslate.map(node => node.nodeValue);
     const combinedText = originalTexts.join('\n---\n');
+    const config = {
+        "translate_html_with_google": true,
+        "google_translate_source": "auto",
+        "google_translate_target": "es",
+        "google_translate_api_key": selectedEngine === 'deepl' ? apiKey : null, // Calibre usa este campo para la clave de DeepL
+        "google_translate_engine": selectedEngine
+    };
 
     try {
         const selectedEngine = options.translationEngine || 'google';
         const translateOptions = { to: 'es', engine: selectedEngine };
+    await fs.writeFile(configPath, JSON.stringify(config, null, 2));
+}
 
         let apiKey = null;
         if (selectedEngine === 'deepl') {
@@ -1100,6 +1163,9 @@ async function translateDocument(doc, window, options) {
         if (apiKey) {
             translateOptions.key = apiKey;
         }
+async function getTitleFromOPF(zip) {
+    // ... (función existente, no se muestra para brevedad)
+}
 
         // The translation process aims to maintain the original HTML structure
         // by only replacing the text content of nodes.
@@ -1124,6 +1190,13 @@ async function translateDocument(doc, window, options) {
         console.error('Error inesperado durante la traducción:', error);
     }
 
+/**
+ * Traduce el contenido de un documento HTML a español.
+ * @param {Document} doc - El documento DOM a traducir.
+ * @param {object} window - El objeto window de JSDOM.
+ * @returns {Promise<boolean>} - `true` si se realizó la traducción, de lo contrario `false`.
+ */
+async function translateDocument(doc, window, options) {
     return false;
 }
 
@@ -1185,6 +1258,7 @@ async function detectLanguageFromContent(zip) {
  * @returns {Promise<Buffer>} - Un buffer con el .epub limpio.
  */
 async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
+async function processEpubBuffer(initialBuffer, options, onProgress = async () => {}) {
     const jszip = new JSZip();
     
     // Adaptación para Node.js: Necesitamos JSDOM para simular el DOM
@@ -1196,6 +1270,8 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
     await onProgress('Paso 1/4: Descomprimiendo el .epub...');
     console.log('Cargando y descomprimiendo el .epub...');
     const zip = await jszip.loadAsync(buffer);
+    logEvent(`Chat ${options.chatId}: Cargando y descomprimiendo el .epub...`);
+    const zip = await jszip.loadAsync(initialBuffer);
     
     let imagesRemovedCount = 0;
     let filesModifiedCount = 0;
@@ -1206,23 +1282,28 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
 
     // --- Detección de idioma ---
     let shouldTranslate = true; // Por defecto, intentamos traducir.
+    let shouldTranslate = options.translate; // Usar la opción del usuario
     await onProgress('Paso 2/4: Detectando idioma...');
 
     // 1. Intentar con los metadatos (más rápido)
     let lang = await getLanguageFromOPF(zip);
     console.log(`Idioma detectado en metadatos (OPF): ${lang}`);
+    logEvent(`Chat ${options.chatId}: Idioma detectado en metadatos (OPF): ${lang}`);
 
     if (lang && lang.toLowerCase().startsWith('es')) { // Si los metadatos indican español
         shouldTranslate = false;
         console.log('El libro ya está en español (según metadatos). No se traducirá.');
+        logEvent(`Chat ${options.chatId}: El libro ya está en español (según metadatos). No se traducirá.`);
     } else {
         // 2. Si los metadatos no son concluyentes, analizar el contenido (más fiable)
         lang = await detectLanguageFromContent(zip);
         console.log(`Idioma detectado en contenido (franc): ${lang}`);
+        logEvent(`Chat ${options.chatId}: Idioma detectado en contenido (franc): ${lang}`);
         // 'spa' es el código ISO 639-3 para español de franc
         if (lang === 'spa') {
             shouldTranslate = false; // Si el contenido es español
             console.log('El libro ya está en español (según análisis de contenido). No se traducirá.');
+            logEvent(`Chat ${options.chatId}: El libro ya está en español (según análisis de contenido). No se traducirá.`);
         }
     }
     logEvent(`Chat ${options.chatId}: Idioma detectado: ${lang}. ¿Traducir? ${shouldTranslate}.`);
@@ -1314,6 +1395,7 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
                         }
                     } catch (e) {
                         console.warn(`Error al parsear ${zipEntry.name}, omitiendo:`, e.message);
+                        logEvent(`Chat ${options.chatId}: Advertencia - Error al parsear ${zipEntry.name}, omitiendo: ${e.message}`);
                         // Guardamos el nombre del archivo que falló para notificar al usuario.
                         parsingErrors.push(zipEntry.name); // Error de parseo
                     }
@@ -1328,6 +1410,31 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
     // 4. Eliminar los archivos de imagen marcados
     filesToRemove.forEach(name => zip.remove(name));
     
+    let currentBuffer = await zip.generateAsync({ type: 'nodebuffer' });
+
+    // --- Traducción con Calibre ---
+    if (shouldTranslate && options.translationEngine) {
+        await onProgress('Traduciendo con Calibre... (esto puede tardar)');
+        logEvent(`Chat ${options.chatId}: Iniciando traducción con Calibre usando ${options.translationEngine}.`);
+
+        const tempDir = './temp';
+        await fs.mkdir(tempDir, { recursive: true });
+        const inputPath = path.join(tempDir, `pre-translation_${Date.now()}.epub`);
+        const outputPath = path.join(tempDir, `translated_${Date.now()}.epub`);
+        const configPath = path.join(tempDir, `translate-config_${Date.now()}.json`);
+
+        await fs.writeFile(inputPath, currentBuffer);
+        await createTranslationConfig(configPath, options);
+
+        try {
+            await runShellCommand('ebook-convert', [inputPath, outputPath, '--read-config', configPath]);
+            currentBuffer = await fs.readFile(outputPath);
+            logEvent(`Chat ${options.chatId}: Traducción con Calibre completada.`);
+        } finally {
+            await Promise.all([fs.unlink(inputPath), fs.unlink(outputPath), fs.unlink(configPath)]).catch(e => logEvent(`Chat ${options.chatId}: Advertencia - No se pudieron borrar archivos temporales de traducción.`));
+        }
+    }
+
     // --- Generación de resumen con IA ---
     if (options.generateSummary) {
         logEvent(`Chat ${options.chatId}: Iniciando generación de resumen con IA.`);
@@ -1347,6 +1454,7 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
     const finalBuffer = await zip.generateAsync({ type: 'nodebuffer' });
 
     return [finalBuffer, shouldTranslate, bookSummary];
+    return [currentBuffer, shouldTranslate, bookSummary];
 }
 
 start();
