@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     xz-utils \    
     libvips \
+    libgl1-mesa-glx \
     libegl1 \
     libopengl0 \
     libxcb-cursor0 \
@@ -14,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libnss3 \
     libxkbcommon-x11-0 \
     libfontconfig1 \
+    xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 # Run the Calibre installer non-interactively

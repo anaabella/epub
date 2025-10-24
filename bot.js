@@ -652,7 +652,14 @@ async function handleError(err, chatId, statusMessage) {
 }
 
 const runShellCommand = (command, args = []) => new Promise((resolve, reject) => {
-    const child = require('child_process').spawn(command, args);
+    let finalCommand = command;
+    let finalArgs = args;
+
+    if (command === 'ebook-convert') {
+        finalCommand = 'xvfb-run';
+        finalArgs = ['-a', command, ...args];
+    }
+    const child = require('child_process').spawn(finalCommand, finalArgs);
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (data) => stdout += data);
