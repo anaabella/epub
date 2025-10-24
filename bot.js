@@ -890,11 +890,19 @@ bot.on('document', async (msg) => {
                 }
             }
 
+            // Clonar las opciones para el trabajo, excluyendo las propiedades de estado que causan la referencia circular.
+            const {
+                processingQueue, profiles, isWaitingForCss, isWaitingForDictionaryRules,
+                isWaitingForMetadata, isWaitingForNewDictionaryName, isWaitingForProfileName,
+                isWaitingForReplacements, currentDictionaryName,
+                ...jobOptions
+            } = userOptions;
+
             const job = {
                 type: 'file',
                 fileBuffer: fileBuffer.toJSON(), // Convertir Buffer a formato serializable
                 originalFileName: originalFileName,
-                options: { ...userOptions } // Clonar opciones para este trabajo
+                options: jobOptions // Usar las opciones limpias
             };
             await addJobToQueue(chatId, job);
 
@@ -924,11 +932,19 @@ async function handleUrlInput(msg, url) {
     logEvent(`Chat ${chatId}: URL recibida - "${url}".`);
     const userOptions = db.data.userStates[chatId];
 
+    // Clonar las opciones para el trabajo, excluyendo las propiedades de estado que causan la referencia circular.
+    const {
+        processingQueue, profiles, isWaitingForCss, isWaitingForDictionaryRules,
+        isWaitingForMetadata, isWaitingForNewDictionaryName, isWaitingForProfileName,
+        isWaitingForReplacements, currentDictionaryName,
+        ...jobOptions
+    } = userOptions;
+
     const job = {
         type: 'url',
         url: url,
         originalFileName: new URL(url).hostname, // Nombre temporal, se actualizará al descargar
-        options: { ...userOptions } // Clonar opciones para este trabajo
+        options: jobOptions // Usar las opciones limpias
     };
     await addJobToQueue(chatId, job);
 }
