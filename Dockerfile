@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxkbcommon-x11-0 \
     libfontconfig1 \
     xvfb \
+    xauth \
     && rm -rf /var/lib/apt/lists/*
 
 # Run the Calibre installer non-interactively

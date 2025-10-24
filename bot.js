@@ -1204,7 +1204,7 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
     let bookSummary = null;
 
     // --- Detección de idioma ---
-    let shouldTranslate = options.translate; // Usar la opción del usuario
+    let shouldTranslate = true; // Por defecto, intentamos traducir.
     await onProgress('Paso 2/4: Detectando idioma...');
 
     // 1. Intentar con los metadatos (más rápido)
@@ -1228,7 +1228,12 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
             logEvent(`Chat ${options.chatId}: El libro ya está en español (según análisis de contenido). No se traducirá.`);
         }
     }
-    logEvent(`Chat ${options.chatId}: Idioma detectado: ${lang}. ¿Traducir? ${shouldTranslate}.`);
+
+    // Si el usuario explícitamente desactivó la traducción, respetamos su decisión.
+    if (options.translate === false) {
+        shouldTranslate = false;
+    }
+    logEvent(`Chat ${options.chatId}: Idioma detectado: ${lang}. Decisión de traducción: ${shouldTranslate}.`);
 
     // --- Modificación de metadatos ---
     if (options.metadata && (options.metadata.title || options.metadata.author)) {
