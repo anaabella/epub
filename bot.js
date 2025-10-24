@@ -158,18 +158,22 @@ bot.onText(/\/start/, (msg) => {
 
 // Responde al comando /limpiar para mostrar las opciones
 bot.onText(/\/limpiar/, async (msg) => {
-    const chatId = msg.chat.id;
-    // Si el usuario no tiene estado, se lo creamos con las opciones por defecto.
-    if (!db.data.userStates[chatId]) {
-        db.data.userStates[chatId] = { ...defaultOptions, singleUseReplacements: [] };
-        await db.write();
-    }
-    const userOptions = db.data.userStates[chatId];
-    bot.sendMessage(chatId, 'Selecciona las opciones de limpieza que deseas aplicar:', {
-        reply_markup: {
-            inline_keyboard: generateOptionsKeyboard(userOptions)
+    try {
+        const chatId = msg.chat.id;
+        // Si el usuario no tiene estado, se lo creamos con las opciones por defecto.
+        if (!db.data.userStates[chatId]) {
+            db.data.userStates[chatId] = { ...defaultOptions, singleUseReplacements: [] };
+            await db.write();
         }
-    });
+        const userOptions = db.data.userStates[chatId];
+        await bot.sendMessage(chatId, 'Selecciona las opciones de limpieza que deseas aplicar:', {
+            reply_markup: {
+                inline_keyboard: generateOptionsKeyboard(userOptions)
+            }
+        });
+    } catch (err) {
+        console.error(`Error en /limpiar para el chat ${msg.chat.id}:`, err.message);
+    }
 });
 
 // Maneja las pulsaciones de los botones del teclado inline
@@ -252,20 +256,21 @@ Cuando me envías un archivo, realizo las siguientes acciones automáticamente:
 
 // Responde al comando /opciones para mostrar la configuración actual
 bot.onText(/\/opciones/, async (msg) => {
-    const chatId = msg.chat.id;
+    try {
+        const chatId = msg.chat.id;
 
-    // Obtener las opciones del usuario o usar las por defecto si no existen
-    const userOptions = (db.data.userStates && db.data.userStates[chatId])
-        ? db.data.userStates[chatId]
-        : defaultOptions;
+        // Obtener las opciones del usuario o usar las por defecto si no existen
+        const userOptions = (db.data.userStates && db.data.userStates[chatId])
+            ? db.data.userStates[chatId]
+            : defaultOptions;
 
-    // Función auxiliar para crear cada línea del mensaje
-    const getOptionLine = (key, label) => {
-        const emoji = userOptions[key] ? '✅' : '❌';
-        return `- ${emoji} ${label}`;
-    };
+        // Función auxiliar para crear cada línea del mensaje
+        const getOptionLine = (key, label) => {
+            const emoji = userOptions[key] ? '✅' : '❌';
+            return `- ${emoji} ${label}`;
+        };
 
-    const message = `
+        const message = `
 *Tus opciones de limpieza actuales:*
 
 ${getOptionLine('removeImages', 'Quitar imágenes')}
@@ -277,21 +282,25 @@ ${getOptionLine('fixSpacing', 'Corregir espaciado')}
 ${getOptionLine('translate', 'Traducir a Español')}
 
 Puedes cambiarlas en cualquier momento con el comando /limpiar.
-    `.trim();
+        `.trim();
 
-    await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+        await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+    } catch (err) {
+        console.error(`Error en /opciones para el chat ${msg.chat.id}:`, err.message);
+    }
 });
 
 // Comando para iniciar el modo de reemplazo de un solo uso
 bot.onText(/\/reemplazar/, async (msg) => {
-    const chatId = msg.chat.id;
-    if (!db.data.userStates[chatId]) {
-        db.data.userStates[chatId] = { ...defaultOptions, singleUseReplacements: [] };
-    }
-    db.data.userStates[chatId].isWaitingForReplacements = true;
-    await db.write();
+    try {
+        const chatId = msg.chat.id;
+        if (!db.data.userStates[chatId]) {
+            db.data.userStates[chatId] = { ...defaultOptions, singleUseReplacements: [] };
+        }
+        db.data.userStates[chatId].isWaitingForReplacements = true;
+        await db.write();
 
-    const message = `
+        const message = `
 Estás en modo de reemplazo para el próximo libro.
 
 Envíame un mensaje con las reglas, una por línea. El formato es:
@@ -303,7 +312,10 @@ Por ejemplo:
 
 Estas reglas se aplicarán *solo al siguiente .epub que envíes*.
     `;
-    bot.sendMessage(msg.chat.id, message, { parse_mode: 'Markdown' });
+        await bot.sendMessage(msg.chat.id, message, { parse_mode: 'Markdown' });
+    } catch (err) {
+        console.error(`Error en /reemplazar para el chat ${msg.chat.id}:`, err.message);
+    }
 });
 
 /**
