@@ -655,11 +655,7 @@ const runShellCommand = (command, args = []) => new Promise((resolve, reject) =>
     let finalCommand = command;
     let finalArgs = args;
 
-    if (command === 'ebook-convert') {
-        finalCommand = 'xvfb-run';
-        finalArgs = ['-a', command, ...args];
-    }
-    const child = require('child_process').spawn(finalCommand, finalArgs);
+    const child = require('child_process').spawn(command, args);
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (data) => stdout += data);
@@ -756,14 +752,13 @@ async function sendProcessedFile(chatId, processedBuffer, wasTranslated, bookSum
  * @param {string} url - La URL de la historia a descargar.
  * @param {string} recipePath - La ruta donde se guardará el archivo .recipe.
  */
-async function createFanFicFareRecipe(url, recipePath) {
+async function createFanFicFareRecipe(url, recipePath) { // This function is now correct
     const recipeContent = `
-from calibre.web.feeds.recipes import BasicNewsRecipe
-
-class FanFicFareRecipe(BasicNewsRecipe):
-    title = u'Downloaded Story'
-    __author__ = u'FanFicFare'
-    extra_customization = ('story_url',)
+from calibre.web.recipes.fanfictionnet import FanFictionNetSite
+class GeneratedRecipe(FanFictionNetSite):
+    def __init__(self, *args):
+        FanFictionNetSite.__init__(self, *args)
+        self.story_url = '${url}'
 `;
     await fs.writeFile(recipePath, recipeContent.trim());
 }
@@ -827,7 +822,7 @@ async function processUserQueue(chatId) {
                         
                         await onProgress(`Descargando historia de ${new URL(job.url).hostname}...`);
                         await createFanFicFareRecipe(job.url, recipePath);
-                        await runShellCommand('ebook-convert', [recipePath, tempEpubPath, '--verbose', '--custom-recipe', `story_url=${job.url}`]);
+                        await runShellCommand('xvfb-run', ['-a', 'ebook-convert', recipePath, tempEpubPath, '--verbose']);
                         fileBuffer = await fs.readFile(tempEpubPath);
                         
                         // Guardar en caché para futuras solicitudes
@@ -933,7 +928,7 @@ bot.on('document', async (msg) => {
                 const epubPath = inputPath.replace(fileExtension, '.epub');
 
                 await fs.writeFile(inputPath, fileBuffer);
-
+                
                 try { // Este bloque maneja la conversión de PDF, MOBI, AZW3, TXT a EPUB
                     await runShellCommand('ebook-convert', [inputPath, epubPath]);
                     fileBuffer = await fs.readFile(epubPath);
@@ -1205,7 +1200,7 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
     let bookSummary = null;
 
     // --- Detección de idioma ---
-    let shouldTranslate = true; // Por defecto, intentamos traducir.
+    let shouldTranslate = options.translate !== false; // Traducir a menos que esté explícitamente desactivado
     await onProgress('Paso 2/4: Detectando idioma...');
 
     // 1. Intentar con los metadatos (más rápido)
@@ -1230,10 +1225,6 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
         }
     }
 
-    // Si el usuario explícitamente desactivó la traducción, respetamos su decisión.
-    if (options.translate === false) {
-        shouldTranslate = false;
-    }
     logEvent(`Chat ${options.chatId}: Idioma detectado: ${lang}. Decisión de traducción: ${shouldTranslate}.`);
 
     // --- Modificación de metadatos ---
