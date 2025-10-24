@@ -5,7 +5,8 @@ FROM node:20
 # We also clean up the apt cache in the same layer to reduce image size.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
-    xz-utils \
+    xz-utils \    
+    libvips \
     libegl1 \
     libopengl0 \
     libxcb-cursor0 \
