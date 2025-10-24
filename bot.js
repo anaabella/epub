@@ -29,6 +29,9 @@ const translate = require('translate');
 const fs = require('fs').promises;
 const path = require('path');
 
+// Configuración para la librería de traducción
+translate.engine = 'google'; // O 'deepl', 'yandex', etc.
+
 // --- 2. Configuración del Token ---
 // ¡NO PONGAS TU CLAVE AQUÍ! Lee la variable de entorno que configuraste.
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -175,47 +178,51 @@ bot.on('callback_query', async (callbackQuery) => {
     const chatId = msg.chat.id;
     const data = callbackQuery.data;
 
-    // Si el usuario no tiene estado, lo inicializamos.
-    if (!db.data.userStates[chatId]) {
-        db.data.userStates[chatId] = { ...defaultOptions, singleUseReplacements: [] };
-        await db.write();
-    }
-    const userOptions = db.data.userStates[chatId];
+    try {
+        // Si el usuario no tiene estado, lo inicializamos.
+        if (!db.data.userStates[chatId]) {
+            db.data.userStates[chatId] = { ...defaultOptions, singleUseReplacements: [] };
+            await db.write();
+        }
+        const userOptions = db.data.userStates[chatId];
 
-    if (data.startsWith('toggle_')) {
-        const optionKey = data.replace('toggle_', '');
-        // Cambiamos el valor de la opción (true a false y viceversa)
-        userOptions[optionKey] = !userOptions[optionKey];
-        await db.write(); // Guardamos el cambio en la base de datos
+        if (data.startsWith('toggle_')) {
+            const optionKey = data.replace('toggle_', '');
+            // Cambiamos el valor de la opción (true a false y viceversa)
+            userOptions[optionKey] = !userOptions[optionKey];
+            await db.write(); // Guardamos el cambio en la base de datos
 
-        // Editamos el mensaje original con el teclado actualizado
-        bot.editMessageReplyMarkup({
-            inline_keyboard: generateOptionsKeyboard(userOptions)
-        }, {
-            chat_id: chatId,
-            message_id: msg.message_id
+            // Editamos el mensaje original con el teclado actualizado
+            await bot.editMessageReplyMarkup({
+                inline_keyboard: generateOptionsKeyboard(userOptions)
+            }, {
+                chat_id: chatId,
+                message_id: msg.message_id
+            });
+        } else if (data === 'done_selecting') {
+            // Eliminamos el teclado y confirmamos al usuario.
+            await bot.editMessageText('¡Opciones guardadas! Ahora puedes enviarme tu archivo .epub.', {
+                chat_id: chatId,
+                message_id: msg.message_id
+            });
+        } else if (data === 'reset_options') {
+            // Reseteamos las opciones del usuario a los valores por defecto
+            Object.assign(userOptions, defaultOptions);
+
+            // Actualizamos el teclado para reflejar el cambio
+            await bot.editMessageReplyMarkup({
+                inline_keyboard: generateOptionsKeyboard(userOptions)
+            }, { chat_id: chatId, message_id: msg.message_id });
+            await bot.answerCallbackQuery(callbackQuery.id, { text: 'Opciones reseteadas' });
+        }
+    } catch (err) {
+        // Si algo falla (ej: el mensaje ya no existe), lo capturamos aquí.
+        console.error(`Error en callback_query para el chat ${chatId}:`, err.message);
+        // Opcional: notificar al usuario que algo salió mal con el botón.
+        await bot.answerCallbackQuery(callbackQuery.id, {
+            text: 'Hubo un error al procesar esta acción.',
+            show_alert: true
         });
-    } else if (data === 'done_selecting') {
-        // Eliminamos el teclado y confirmamos al usuario.
-        bot.editMessageText('¡Opciones guardadas! Ahora puedes enviarme tu archivo .epub.', {
-            chat_id: chatId,
-            message_id: msg.message_id
-        });
-    } else if (data === 'reset_options') {
-        // Reseteamos las opciones del usuario a los valores por defecto
-        userOptions.removeImages = defaultOptions.removeImages;
-        userOptions.removeGoogle = defaultOptions.removeGoogle;
-        userOptions.fixPunctuation = defaultOptions.fixPunctuation;
-        userOptions.fixSpacing = defaultOptions.fixSpacing;
-        userOptions.removeEmptyP = defaultOptions.removeEmptyP;
-        userOptions.removeStyles = defaultOptions.removeStyles;
-        userOptions.translate = defaultOptions.translate;
-
-        // Actualizamos el teclado para reflejar el cambio
-        bot.editMessageReplyMarkup({
-            inline_keyboard: generateOptionsKeyboard(userOptions)
-        }, { chat_id: chatId, message_id: msg.message_id });
-        bot.answerCallbackQuery(callbackQuery.id, { text: 'Opciones reseteadas' });
     }
 });
 
@@ -707,7 +714,11 @@ async function translateDocument(doc, window) {
             return true;
         }
     } catch (error) {
-        console.error('Error al traducir:', error);
+        // Si el error es por "Too many requests", es un error de la API de traducción, no del bot.
+        if (error.message.includes('Too many requests')) {
+            throw new Error('El servicio de traducción está sobrecargado. Por favor, inténtalo de nuevo más tarde.');
+        }
+        console.error('Error inesperado durante la traducción:', error);
     }
 
     return false;
