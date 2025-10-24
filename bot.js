@@ -238,24 +238,19 @@ bot.on('callback_query', async (callbackQuery) => {
 // Responde al comando /help
 bot.onText(/\/help/, async (msg) => {
     try {
-        const helpMessage = `¡Hola! Soy un bot que limpia archivos .epub.
-¡Hola! Soy un bot que limpia archivos .epub.
-Cuando me envías un archivo, realizo las siguientes acciones automáticamente:
-
-*COMANDOS PRINCIPALES*
-- `/limpiar`: Abre un menú para activar o desactivar las opciones de limpieza.
-- `/reemplazar`: Permite definir reglas de reemplazo para el próximo libro.
-
-*🧹 OPCIONES DE LIMPIEZA*
-- *Elimino imágenes:* Quito todas las imágenes (jpg, png, etc.) para reducir el tamaño del archivo.
-- *Elimino estilos:* Borro todos los estilos en línea (colores, tamaños de fuente, etc.) para un formato más limpio.
-- *Elimino párrafos vacíos:* Quito los párrafos que no contienen texto ni elementos.
-
-*✍️ OPCIONES DE CORRECCIÓN*
-- *Elimino "Traducido por Google":* Busco y elimino la frase "Machine Translated by Google".
-- *Corrijo puntuación de diálogos:* Reemplazo comillas (' " “ ” « ») y puntos seguidos de comillas (.") por guiones largos (—).
-- *Corrijo espaciado:* Reemplazo múltiples espacios seguidos por uno solo.
-`;
+        const helpMessage = "¡Hola! Soy un bot que limpia archivos .epub.\n" +
+                            "Cuando me envías un archivo, realizo las siguientes acciones automáticamente:\n\n" +
+                            "*COMANDOS PRINCIPALES*\n" +
+                            "- `/limpiar`: Abre un menú para activar o desactivar las opciones de limpieza.\n" +
+                            "- `/reemplazar`: Permite definir reglas de reemplazo para el próximo libro.\n\n" +
+                            "*🧹 OPCIONES DE LIMPIEZA*\n" +
+                            "- *Elimino imágenes:* Quito todas las imágenes (jpg, png, etc.) para reducir el tamaño del archivo.\n" +
+                            "- *Elimino estilos:* Borro todos los estilos en línea (colores, tamaños de fuente, etc.) para un formato más limpio.\n" +
+                            "- *Elimino párrafos vacíos:* Quito los párrafos que no contienen texto ni elementos.\n\n" +
+                            "*✍️ OPCIONES DE CORRECCIÓN*\n" +
+                            "- *Elimino \"Traducido por Google\":* Busco y elimino la frase \"Machine Translated by Google\".\n" +
+                            "- *Corrijo puntuación de diálogos:* Reemplazo comillas (' \" “ ” « ») y puntos seguidos de comillas (\".\") por guiones largos (—).\n" +
+                            "- *Corrijo espaciado:* Reemplazo múltiples espacios seguidos por uno solo.";
         await bot.sendMessage(msg.chat.id, helpMessage, { parse_mode: 'Markdown' });
     } catch (err) {
         console.error(`Error en /help para el chat ${msg.chat.id}:`, err.message);
@@ -378,7 +373,7 @@ bot.on('document', async (msg) => {
             let lastProgressText = '';
             const onProgress = async (text) => {
                 if (text === lastProgressText) return;
-                try {
+            if (statusMessage && statusMessage.message_id) { // Añadir esta verificación
                     await bot.editMessageText(text, { chatId, message_id: statusMessage.message_id });
                     lastProgressText = text;
                 } catch (e) {
@@ -484,7 +479,7 @@ bot.onText(wattpadUrlRegex, async (msg) => {
         let lastProgressText = '';
         const onProgress = async (text) => {
             if (text === lastProgressText) return;
-            try {
+            if (statusMessage && statusMessage.message_id) { // Añadir esta verificación
                 await bot.editMessageText(text, { chatId, message_id: statusMessage.message_id });
                 lastProgressText = text;
             } catch (e) {

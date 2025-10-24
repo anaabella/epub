@@ -9,6 +9,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libegl1 \
     libopengl0 \
     libxcb-cursor0 \
+    libfuse2 \
+    libnss3 \
+    libxkbcommon-x11-0 \
+    libfontconfig1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Run the Calibre installer non-interactively
