@@ -1327,3 +1327,5 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
 
     return [finalBuffer, shouldTranslate, bookSummary];
 }
+
+start();
