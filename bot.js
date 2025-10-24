@@ -78,6 +78,7 @@ const start = async () => {
             { command: 'limpiar', description: 'Personaliza las opciones de limpieza' },
             { command: 'reemplazar', description: 'Añade reglas para el próximo libro' },
             { command: 'help', description: 'Muestra la ayuda detallada' },
+            { command: 'opciones', description: 'Muestra tus opciones de limpieza actuales' },
         ]);
         console.log('Comandos registrados en Telegram.');
 
@@ -439,6 +440,73 @@ bot.on('document', async (msg) => {
         }
     } else {
         await bot.sendMessage(chatId, "Por favor, envíame un archivo que termine en .epub o .pdf.");
+    }
+});
+
+// Responde a enlaces de Wattpad
+const wattpadUrlRegex = /https?:\/\/(www\.)?wattpad\.com\/story\/(\d+)/;
+bot.onText(wattpadUrlRegex, async (msg) => {
+    const chatId = msg.chat.id;
+    const url = msg.text;
+
+    let statusMessage;
+    const tempDir = './temp';
+    let epubPath; // Definir aquí para que esté disponible en el bloque finally
+
+    try {
+        statusMessage = await bot.sendMessage(chatId, `Recibido enlace de Wattpad. Preparando descarga...`);
+
+        // Función de progreso para mantener al usuario informado
+        let lastProgressText = '';
+        const onProgress = async (text) => {
+            if (text === lastProgressText) return;
+            try {
+                await bot.editMessageText(text, { chatId, message_id: statusMessage.message_id });
+                lastProgressText = text;
+            } catch (e) {
+                if (!e.message.includes('message is not modified')) {
+                    console.warn('No se pudo editar el mensaje de progreso:', e.message);
+                }
+            }
+        };
+
+        await onProgress(`Descargando historia de Wattpad... Esto puede tardar varios minutos.`);
+
+        // Crear un directorio temporal y definir la ruta del archivo de salida
+        await fs.mkdir(tempDir, { recursive: true });
+        const tempFileName = `wattpad_${Date.now()}.epub`;
+        epubPath = path.join(tempDir, tempFileName);
+
+        // Usar ebook-convert para descargar la historia
+        await runShellCommand(`ebook-convert "${url}" "${epubPath}"`);
+
+        // Leer el archivo descargado en un buffer
+        const fileBuffer = await fs.readFile(epubPath);
+        const storyTitleMatch = (await fs.readFile(epubPath, 'utf-8')).match(/<dc:title>(.*?)<\/dc:title>/);
+        const originalFileName = storyTitleMatch ? `${storyTitleMatch[1].replace(/[/\\?%*:|"<>]/g, '-')}.epub` : tempFileName;
+
+        // Obtener las opciones del usuario
+        db.data.userStates ||= {};
+        if (!db.data.userStates[chatId]) {
+            db.data.userStates[chatId] = { ...defaultOptions, singleUseReplacements: [] };
+        }
+        const options = db.data.userStates[chatId];
+
+        // Procesar el EPUB con la lógica existente
+        const processedBuffer = await processEpubBuffer(fileBuffer, options, onProgress);
+
+        // Enviar el archivo procesado
+        const newFileName = options.translate ? originalFileName.replace('.epub', '_traducido.epub') : originalFileName.replace('.epub', '_limpio.epub');
+        await bot.sendDocument(chatId, processedBuffer, {}, { filename: newFileName, contentType: 'application/epub+zip' });
+        await bot.deleteMessage(chatId, statusMessage.message_id);
+
+    } catch (err) {
+        handleError(err, chatId, statusMessage);
+    } finally {
+        // Limpiar el archivo temporal
+        if (epubPath) {
+            await fs.unlink(epubPath).catch(e => console.warn(`No se pudo borrar el archivo temporal: ${epubPath}`, e));
+        }
     }
 });
 
