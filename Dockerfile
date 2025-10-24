@@ -14,7 +14,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Run the Calibre installer non-interactively
 RUN wget -nv -O- https://download.calibre-ebook.com/linux-installer.sh | sh -s -- install_dir=/opt
 # Add Calibre to the system's PATH so `ebook-convert` can be found
+# Also, add Calibre's libraries to the dynamic linker's search path.
 ENV PATH="/opt/calibre/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/opt/calibre/lib:${LD_LIBRARY_PATH}"
 
 # Create app directory
 WORKDIR /usr/src/app

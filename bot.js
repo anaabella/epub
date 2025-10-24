@@ -238,7 +238,7 @@ bot.on('callback_query', async (callbackQuery) => {
 // Responde al comando /help
 bot.onText(/\/help/, async (msg) => {
     try {
-        const helpMessage = `
+        const helpMessage = `¡Hola! Soy un bot que limpia archivos .epub.
 ¡Hola! Soy un bot que limpia archivos .epub.
 Cuando me envías un archivo, realizo las siguientes acciones automáticamente:
 
@@ -255,7 +255,7 @@ Cuando me envías un archivo, realizo las siguientes acciones automáticamente:
 - *Elimino "Traducido por Google":* Busco y elimino la frase "Machine Translated by Google".
 - *Corrijo puntuación de diálogos:* Reemplazo comillas (' " “ ” « ») y puntos seguidos de comillas (.") por guiones largos (—).
 - *Corrijo espaciado:* Reemplazo múltiples espacios seguidos por uno solo.
-    `;
+`;
         await bot.sendMessage(msg.chat.id, helpMessage, { parse_mode: 'Markdown' });
     } catch (err) {
         console.error(`Error en /help para el chat ${msg.chat.id}:`, err.message);
