@@ -334,6 +334,8 @@ async function handleError(err, chatId, statusMessage) {
         await bot.sendMessage(chatId, 'Lo siento, la descarga del archivo tardó demasiado y se canceló. Intenta con un archivo más pequeño o revisa la conexión del servidor.');
     } else if (err.message && err.message.includes('file is too big')) {
         await bot.sendMessage(chatId, 'Lo siento, el archivo es demasiado grande para ser procesado por el bot.');
+    } else if (err.message && err.message.includes('Cannot read from')) {
+        await bot.sendMessage(chatId, 'Lo siento, no pude procesar el enlace. Asegúrate de enviar solo la URL de Wattpad, sin texto adicional.');
     } else {
         await bot.sendMessage(chatId, `Lo siento, ocurrió un error inesperado: ${err.message}`);
     }
@@ -373,16 +375,19 @@ bot.on('document', async (msg) => {
             let lastProgressText = '';
             const onProgress = async (text) => {
                 if (text === lastProgressText) return;
-                if (statusMessage && statusMessage.message_id) {
+                // Asegurarse de que statusMessage y sus IDs de chat/mensaje sean válidos antes de intentar editar.
+                if (statusMessage && statusMessage.message_id && statusMessage.chat && statusMessage.chat.id) {
                     try {
-                    await bot.editMessageText(text, { chatId, message_id: statusMessage.message_id });
-                    lastProgressText = text;
+                        await bot.editMessageText(text, { chat_id: statusMessage.chat.id, message_id: statusMessage.message_id });
+                        lastProgressText = text;
                     } catch (e) {
                         if (!e.message.includes('message is not modified')) {
                             console.warn('No se pudo editar el mensaje de progreso:', e.message);
                         }
                     }
                 }
+                // Si statusMessage no es válido, registrar el progreso en la consola en lugar de editar un mensaje inexistente.
+                else { console.log(`Progreso (sin mensaje de estado válido): ${text}`); }
             };
 
             await onProgress('Descargando archivo...');
@@ -466,9 +471,11 @@ bot.on('document', async (msg) => {
 
 // Responde a enlaces de Wattpad
 const wattpadUrlRegex = /https?:\/\/(www\.)?wattpad\.com\/story\/(\d+)/;
-bot.onText(wattpadUrlRegex, async (msg) => {
+bot.onText(wattpadUrlRegex, async (msg, match) => {
     const chatId = msg.chat.id;
-    const url = msg.text;
+    // Usamos match[0] para obtener solo la URL que coincidió con la expresión regular,
+    // en lugar de todo el texto del mensaje (msg.text).
+    const url = match[0];
 
     let statusMessage;
     const tempDir = './temp';
@@ -481,16 +488,19 @@ bot.onText(wattpadUrlRegex, async (msg) => {
         let lastProgressText = '';
         const onProgress = async (text) => {
             if (text === lastProgressText) return;
-            if (statusMessage && statusMessage.message_id) {
+            // Asegurarse de que statusMessage y sus IDs de chat/mensaje sean válidos antes de intentar editar.
+            if (statusMessage && statusMessage.message_id && statusMessage.chat && statusMessage.chat.id) {
                 try {
-                    await bot.editMessageText(text, { chatId, message_id: statusMessage.message_id });
+                    await bot.editMessageText(text, { chat_id: statusMessage.chat.id, message_id: statusMessage.message_id });
                     lastProgressText = text;
                 } catch (e) {
                     if (!e.message.includes('message is not modified')) {
                         console.warn('No se pudo editar el mensaje de progreso:', e.message);
                     }
                 }
-            }
+            } 
+            // Si statusMessage no es válido, registrar el progreso en la consola en lugar de editar un mensaje inexistente.
+            else { console.log(`Progreso (sin mensaje de estado válido): ${text}`); }
         };
 
         await onProgress(`Descargando historia de Wattpad... Esto puede tardar varios minutos.`);
