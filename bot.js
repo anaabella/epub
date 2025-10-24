@@ -242,6 +242,38 @@ Cuando me envías un archivo, realizo las siguientes acciones automáticamente:
     bot.sendMessage(msg.chat.id, helpMessage, { parse_mode: 'Markdown' });
 });
 
+// Responde al comando /opciones para mostrar la configuración actual
+bot.onText(/\/opciones/, async (msg) => {
+    const chatId = msg.chat.id;
+
+    // Obtener las opciones del usuario o usar las por defecto si no existen
+    const userOptions = (db.data.userStates && db.data.userStates[chatId])
+        ? db.data.userStates[chatId]
+        : defaultOptions;
+
+    // Función auxiliar para crear cada línea del mensaje
+    const getOptionLine = (key, label) => {
+        const emoji = userOptions[key] ? '✅' : '❌';
+        return `- ${emoji} ${label}`;
+    };
+
+    const message = `
+*Tus opciones de limpieza actuales:*
+
+${getOptionLine('removeImages', 'Quitar imágenes')}
+${getOptionLine('removeStyles', 'Quitar estilos')}
+${getOptionLine('removeEmptyP', 'Quitar párrafos vacíos')}
+${getOptionLine('removeGoogle', 'Quitar "Traducido por..."')}
+${getOptionLine('fixPunctuation', 'Corregir puntuación')}
+${getOptionLine('fixSpacing', 'Corregir espaciado')}
+${getOptionLine('translate', 'Traducir a Español')}
+
+Puedes cambiarlas en cualquier momento con el comando /limpiar.
+    `.trim();
+
+    await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+});
+
 // Comando para iniciar el modo de reemplazo de un solo uso
 bot.onText(/\/reemplazar/, async (msg) => {
     const chatId = msg.chat.id;
