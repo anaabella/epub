@@ -1441,3 +1441,6 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
 
     return [finalBuffer, shouldTranslate, bookSummary];
 }
+
+// --- 6. Inicio del Bot ---
+start();
