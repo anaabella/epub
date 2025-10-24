@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Run the Calibre installer non-interactively
-RUN wget -nv -O- https://download.calibre-ebook.com/linux-installer.sh | sh /dev/stdin with_library=no
+RUN wget -nv -O- https://download.calibre-ebook.com/linux-installer.sh | sh /dev/stdin auto
 # Add Calibre to the system's PATH so `ebook-convert` can be found
 ENV PATH="/opt/calibre/bin:${PATH}"
 
