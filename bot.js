@@ -373,12 +373,14 @@ bot.on('document', async (msg) => {
             let lastProgressText = '';
             const onProgress = async (text) => {
                 if (text === lastProgressText) return;
-            if (statusMessage && statusMessage.message_id) { // Añadir esta verificación
+                if (statusMessage && statusMessage.message_id) {
+                    try {
                     await bot.editMessageText(text, { chatId, message_id: statusMessage.message_id });
                     lastProgressText = text;
-                } catch (e) {
-                    if (!e.message.includes('message is not modified')) {
-                        console.warn('No se pudo editar el mensaje de progreso:', e.message);
+                    } catch (e) {
+                        if (!e.message.includes('message is not modified')) {
+                            console.warn('No se pudo editar el mensaje de progreso:', e.message);
+                        }
                     }
                 }
             };
@@ -479,12 +481,14 @@ bot.onText(wattpadUrlRegex, async (msg) => {
         let lastProgressText = '';
         const onProgress = async (text) => {
             if (text === lastProgressText) return;
-            if (statusMessage && statusMessage.message_id) { // Añadir esta verificación
-                await bot.editMessageText(text, { chatId, message_id: statusMessage.message_id });
-                lastProgressText = text;
-            } catch (e) {
-                if (!e.message.includes('message is not modified')) {
-                    console.warn('No se pudo editar el mensaje de progreso:', e.message);
+            if (statusMessage && statusMessage.message_id) {
+                try {
+                    await bot.editMessageText(text, { chatId, message_id: statusMessage.message_id });
+                    lastProgressText = text;
+                } catch (e) {
+                    if (!e.message.includes('message is not modified')) {
+                        console.warn('No se pudo editar el mensaje de progreso:', e.message);
+                    }
                 }
             }
         };
