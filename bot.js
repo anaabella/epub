@@ -1115,88 +1115,6 @@ signals.forEach(signal => {
  * @param {object} options - Las opciones del usuario, que incluyen el motor y la clave API.
  */
 async function translateDocument(doc, window, options) {
-    const textToTranslate = [];
-    const walker = doc.createTreeWalker(doc.body, window.NodeFilter.SHOW_TEXT, null, false);
-    let node;
-    while (node = walker.nextNode()) {
-        if (node.nodeValue.trim()) {
-            textToTranslate.push(node);
-        }
-    }
-async function createTranslationConfig(configPath, options) {
-    const selectedEngine = options.translationEngine || 'google';
-    let apiKey = null;
-
-    if (textToTranslate.length === 0) {
-        return false;
-    if (selectedEngine === 'deepl') {
-        apiKey = process.env.DEEPL_KEY;
-        if (!apiKey) throw new Error('La clave de API de DeepL (DEEPL_KEY) no está configurada.');
-    }
-    // Añadir más motores si es necesario
-
-    // Unimos todos los textos para una única llamada a la API
-    const originalTexts = textToTranslate.map(node => node.nodeValue);
-    const combinedText = originalTexts.join('\n---\n');
-    const config = {
-        "translate_html_with_google": true,
-        "google_translate_source": "auto",
-        "google_translate_target": "es",
-        "google_translate_api_key": selectedEngine === 'deepl' ? apiKey : null, // Calibre usa este campo para la clave de DeepL
-        "google_translate_engine": selectedEngine
-    };
-
-    try {
-        const selectedEngine = options.translationEngine || 'google';
-        const translateOptions = { to: 'es', engine: selectedEngine };
-    await fs.writeFile(configPath, JSON.stringify(config, null, 2));
-}
-
-        let apiKey = null;
-        if (selectedEngine === 'deepl') {
-            apiKey = process.env.DEEPL_KEY;
-            if (!apiKey) throw new Error('DeepL API key (DEEPL_KEY) is not set in environment variables.');
-        } else if (selectedEngine === 'yandex') {
-            apiKey = process.env.YANDEX_KEY;
-            if (!apiKey) throw new Error('Yandex API key (YANDEX_KEY) is not set in environment variables.');
-        }
-        if (apiKey) {
-            translateOptions.key = apiKey;
-        }
-async function getTitleFromOPF(zip) {
-    // ... (función existente, no se muestra para brevedad)
-}
-
-        // The translation process aims to maintain the original HTML structure
-        // by only replacing the text content of nodes.
-        // Visual formatting (styles) might be affected if the 'removeStyles'
-        // option is enabled, as it removes inline CSS.
-        // Use dynamic import for ES Modules like 'translate'
-        const translate = (await import('translate')).default;
-        const translatedText = await translate(combinedText, translateOptions);
-        const translatedParts = translatedText.split('\n---\n');
-
-        if (originalTexts.length === translatedParts.length) {
-            textToTranslate.forEach((node, index) => {
-                node.nodeValue = translatedParts[index];
-            });
-            return true;
-        }
-    } catch (error) {
-        // Si el error es por "Too many requests", es un error de la API de traducción, no del bot.
-        if (error.message.includes('Too many requests')) {
-            throw new Error('El servicio de traducción está sobrecargado. Por favor, inténtalo de nuevo más tarde.');
-        }
-        console.error('Error inesperado durante la traducción:', error);
-    }
-
-/**
- * Traduce el contenido de un documento HTML a español.
- * @param {Document} doc - El documento DOM a traducir.
- * @param {object} window - El objeto window de JSDOM.
- * @returns {Promise<boolean>} - `true` si se realizó la traducción, de lo contrario `false`.
- */
-async function translateDocument(doc, window, options) {
     return false;
 }
 
@@ -1258,7 +1176,6 @@ async function detectLanguageFromContent(zip) {
  * @returns {Promise<Buffer>} - Un buffer con el .epub limpio.
  */
 async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
-async function processEpubBuffer(initialBuffer, options, onProgress = async () => {}) {
     const jszip = new JSZip();
     
     // Adaptación para Node.js: Necesitamos JSDOM para simular el DOM
@@ -1269,9 +1186,8 @@ async function processEpubBuffer(initialBuffer, options, onProgress = async () =
     // 1. Cargar desde el Buffer
     await onProgress('Paso 1/4: Descomprimiendo el .epub...');
     console.log('Cargando y descomprimiendo el .epub...');
-    const zip = await jszip.loadAsync(buffer);
     logEvent(`Chat ${options.chatId}: Cargando y descomprimiendo el .epub...`);
-    const zip = await jszip.loadAsync(initialBuffer);
+    const zip = await jszip.loadAsync(buffer);
     
     let imagesRemovedCount = 0;
     let filesModifiedCount = 0;
@@ -1281,7 +1197,6 @@ async function processEpubBuffer(initialBuffer, options, onProgress = async () =
     let bookSummary = null;
 
     // --- Detección de idioma ---
-    let shouldTranslate = true; // Por defecto, intentamos traducir.
     let shouldTranslate = options.translate; // Usar la opción del usuario
     await onProgress('Paso 2/4: Detectando idioma...');
 
@@ -1378,15 +1293,6 @@ async function processEpubBuffer(initialBuffer, options, onProgress = async () =
                             logEvent(`Chat ${options.chatId}: Limpieza de texto aplicada a ${zipEntry.name}.`);
                         }
 
-                        // --- Traducción ---
-                        if (shouldTranslate && options.translationEngine) { // Asegurarse de que hay un motor seleccionado
-                            await onProgress('Traduciendo texto... (esto puede tardar)');
-                            if (await translateDocument(doc, window, options)) {
-                                modified = true;
-                                logEvent(`Chat ${options.chatId}: Traducción aplicada a ${zipEntry.name}.`);
-                            }
-                        }
-
                         // 5. Si se hizo CUALQUIER modificación, guardar el archivo
                         if (modified) {
                             filesModifiedCount++;
@@ -1453,7 +1359,6 @@ async function processEpubBuffer(initialBuffer, options, onProgress = async () =
     await onProgress('Paso 4/4: Reempaquetando el archivo...');
     const finalBuffer = await zip.generateAsync({ type: 'nodebuffer' });
 
-    return [finalBuffer, shouldTranslate, bookSummary];
     return [currentBuffer, shouldTranslate, bookSummary];
 }
 
