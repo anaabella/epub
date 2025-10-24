@@ -152,8 +152,12 @@ function generateOptionsKeyboard(options) {
 // --- 4. Listeners (Escuchadores de Eventos) ---
 
 // Responde al comando /start
-bot.onText(/\/start/, (msg) => {
-    bot.sendMessage(msg.chat.id, "¡Hola! Envíame un archivo .epub para limpiarlo. Usa /limpiar para personalizar las opciones, /reemplazar para añadir reglas de un solo uso, o /help para ver todo lo que puedo hacer.");
+bot.onText(/\/start/, async (msg) => {
+    try {
+        await bot.sendMessage(msg.chat.id, "¡Hola! Envíame un archivo .epub para limpiarlo. Usa /limpiar para personalizar las opciones, /reemplazar para añadir reglas de un solo uso, o /help para ver todo lo que puedo hacer.");
+    } catch (err) {
+        console.error(`Error en /start para el chat ${msg.chat.id}:`, err.message);
+    }
 });
 
 // Responde al comando /limpiar para mostrar las opciones
@@ -232,8 +236,9 @@ bot.on('callback_query', async (callbackQuery) => {
 
 
 // Responde al comando /help
-bot.onText(/\/help/, (msg) => {
-    const helpMessage = `
+bot.onText(/\/help/, async (msg) => {
+    try {
+        const helpMessage = `
 ¡Hola! Soy un bot que limpia archivos .epub.
 Cuando me envías un archivo, realizo las siguientes acciones automáticamente:
 
@@ -251,7 +256,10 @@ Cuando me envías un archivo, realizo las siguientes acciones automáticamente:
 - *Corrijo puntuación de diálogos:* Reemplazo comillas (' " “ ” « ») y puntos seguidos de comillas (.") por guiones largos (—).
 - *Corrijo espaciado:* Reemplazo múltiples espacios seguidos por uno solo.
     `;
-    bot.sendMessage(msg.chat.id, helpMessage, { parse_mode: 'Markdown' });
+        await bot.sendMessage(msg.chat.id, helpMessage, { parse_mode: 'Markdown' });
+    } catch (err) {
+        console.error(`Error en /help para el chat ${msg.chat.id}:`, err.message);
+    }
 });
 
 // Responde al comando /opciones para mostrar la configuración actual
