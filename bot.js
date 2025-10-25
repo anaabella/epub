@@ -680,7 +680,6 @@ async function addJobToQueue(chatId, job) {
 
     userQueue.push(job);
     await db.write();
-    await bot.sendMessage(chatId, `"${job.originalFileName}" añadido a la cola de procesamiento. Posición: ${userQueue.length}.`);
     logEvent(`Chat ${chatId}: Añadido "${job.originalFileName}" a la cola. Posición: ${userQueue.length}.`);
             let lastProgressText = '';
             const onProgress = async (text) => {

@@ -38,7 +38,7 @@ RUN npm install
 RUN npm install -g readability-cli
 
 # Instalar el plugin de traducción de Calibre
-RUN wget -O /tmp/translate_plugin.zip "https://github.com/hisRT/calibre-translate-plugin/releases/latest/download/calibre-translate-plugin.zip" && \
+RUN wget -O /tmp/translate_plugin.zip "https://github.com/hisRT/calibre-translate-plugin/releases/download/v1.5.2/calibre-translate-plugin-v1.5.2.zip" && \
     calibre-customize -a /tmp/translate_plugin.zip && \
     rm /tmp/translate_plugin.zip
 
