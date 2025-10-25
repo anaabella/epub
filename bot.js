@@ -835,8 +835,7 @@ async function processUserQueue(chatId) {
                             await onProgress('Descargando post de Tumblr...');
                             const tempHtmlPath = path.join(tempDir, `tumblr_${Date.now()}.html`);
                             const tempEpubPath = path.join(tempDir, `tumblr_${Date.now()}.epub`);
-
-                            // 1. Extraer HTML limpio con readability-extractor
+                        // 1. Extraer HTML limpio con readability-extractor
                             await runShellCommand('readability-extractor', [job.url, '--html', '--output', tempHtmlPath]);
 
                             // 2. Convertir a EPUB con pandoc
