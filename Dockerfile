@@ -37,6 +37,9 @@ RUN npm install
 # Instalar readability-cli globalmente
 RUN npm install -g readability-cli
 
+# Instalar el plugin de traducción de Calibre
+RUN calibre-customize -a "https://github.com/hisRT/calibre-translate-plugin/releases/latest/download/calibre-translate-plugin.zip"
+
 # Instalar pipx y FanFicFare en un entorno aislado
 RUN apt-get update && \
     apt-get install -y --no-install-recommends pipx && \
