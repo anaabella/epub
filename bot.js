@@ -817,75 +817,94 @@ async function processUserQueue(chatId) {
                         const tempDir = './temp';
                         await fs.mkdir(tempDir, { recursive: true });
 
-                        if (tumblrUrlRegex.test(job.url)) {
+                        if (wattpadUrlRegex.test(job.url)) {
+                            await onProgress('Descargando historia de Wattpad con yt-dlp...');
+                            const tempHtmlPath = path.join(tempDir, `wattpad_${Date.now()}.html`);
+                            const tempEpubPath = path.join(tempDir, `wattpad_${Date.now()}.epub`);
+
+                            // 1. Descargar el HTML con yt-dlp
+                            await runShellCommand(YT_DLP_PATH, ['--no-playlist', '-o', tempHtmlPath, job.url]);
+
+                            // 2. Extraer autor y título
+                            const author = 'Wattpad'; // yt-dlp for wattpad doesn't easily provide author
+                            const title = new URL(job.url).pathname.split('/')[2] || `Wattpad Story`;
+
+                            // 3. Convertir a EPUB
+                            await onProgress('Convirtiendo HTML a EPUB...');
+                            await runShellCommand('ebook-convert', [
+                                tempHtmlPath, tempEpubPath,
+                                '--title', title,
+                                '--authors', author,
+                                '--language=es', '--chapter-mark=pagebreak',
+                                '--max-toc-links=0', '--no-default-epub-cover'
+                            ]);
+
+                            fileBuffer = await fs.readFile(tempEpubPath);
+                            await fs.unlink(tempHtmlPath).catch(e => console.warn(`No se pudo borrar el archivo HTML temporal: ${tempHtmlPath}`, e));
+                            await fs.unlink(tempEpubPath).catch(e => console.warn(`No se pudo borrar el archivo EPUB temporal: ${tempEpubPath}`, e));
+                        } else if (tumblrUrlRegex.test(job.url)) {
                             await onProgress('Descargando post de Tumblr con yt-dlp...');
                             const tempHtmlPath = path.join(tempDir, `tumblr_${Date.now()}.html`);
                             const tempEpubPath = path.join(tempDir, `tumblr_${Date.now()}.epub`);
 
                             // 1. Descargar el HTML con yt-dlp
-                            await runShellCommand(YT_DLP_PATH, ['-o', tempHtmlPath, job.url]);
+                            await runShellCommand(YT_DLP_PATH, ['--no-check-certificates', '--no-playlist', '-o', tempHtmlPath, job.url]);
 
                             // Extraer título y autor de la URL para los metadatos
                             const urlParts = new URL(job.url);
                             const author = urlParts.hostname.split('.')[0];
                             const title = `Post de ${author}`;
 
-                            // 2. Convertir el HTML a EPUB con Calibre
+                            // 2. Convertir a EPUB
                             await onProgress('Convirtiendo HTML a EPUB...');
                             await runShellCommand('ebook-convert', [
                                 tempHtmlPath, tempEpubPath,
-                                '--title', title,
-                                '--authors', author,
-                                '--language=es',
-                                '--chapter-mark=pagebreak',
-                                '--max-toc-links=0',
-                                '--no-default-epub-cover'
+                                '--title', title, '--authors', author,
+                                '--language=es', '--chapter-mark=pagebreak',
+                                '--max-toc-links=0', '--no-default-epub-cover'
                             ]);
 
                             fileBuffer = await fs.readFile(tempEpubPath);
                             await fs.unlink(tempHtmlPath).catch(e => console.warn(`No se pudo borrar el archivo HTML temporal: ${tempHtmlPath}`, e));
                             await fs.unlink(tempEpubPath).catch(e => console.warn(`No se pudo borrar el archivo EPUB temporal: ${tempEpubPath}`, e));
+                        } else if (twitterUrlRegex.test(job.url)) {
+                            await onProgress('Descargando hilo de X/Twitter con yt-dlp...');
+                            const tempHtmlPath = path.join(tempDir, `twitter_${Date.now()}.html`);
+                            const tempEpubPath = path.join(tempDir, `twitter_${Date.now()}.epub`);
+
+                            // 1. Descargar el HTML y el info.json con yt-dlp
+                            await runShellCommand(YT_DLP_PATH, ['--no-check-certificates', '--no-playlist', '-o', tempHtmlPath, '--write-info-json', '--skip-download', job.url]);
+
+                            // 2. Extraer autor y título del info.json
+                            const infoJsonPath = tempHtmlPath.replace('.html', '.info.json');
+                            const infoJsonContent = await fs.readFile(infoJsonPath, 'utf-8');
+                            const info = JSON.parse(infoJsonContent);
+                            const author = info.uploader || new URL(job.url).pathname.split('/')[1] || 'unknown_author';
+                            const title = `Hilo de @${author}`;
+
+                            // 3. Convertir a EPUB
+                            await onProgress('Convirtiendo HTML a EPUB...');
+                            await runShellCommand('ebook-convert', [
+                                tempHtmlPath, tempEpubPath,
+                                '--title', title, '--authors', author,
+                                '--language=es', '--chapter-mark=pagebreak',
+                                '--max-toc-links=0', '--no-default-epub-cover',
+                                '--level1-toc', '//h[1-6]'
+                            ]);
+
+                            fileBuffer = await fs.readFile(tempEpubPath);
+                            await Promise.all([
+                                fs.unlink(tempHtmlPath), fs.unlink(tempEpubPath), fs.unlink(infoJsonPath)
+                            ]).catch(e => console.warn(`No se pudieron borrar archivos temporales de Twitter: ${e.message}`));
                         } else {
-                            if (twitterUrlRegex.test(job.url)) {
-                                await onProgress('Descargando hilo de X/Twitter con yt-dlp...');
-                                const tempHtmlPath = path.join(tempDir, `twitter_${Date.now()}.html`);
-                                const tempEpubPath = path.join(tempDir, `twitter_${Date.now()}.epub`);
-
-                                // 1. Descargar el HTML y el info.json con yt-dlp
-                                await runShellCommand(YT_DLP_PATH, ['--no-playlist', '-o', tempHtmlPath, '--write-info-json', '--skip-download', job.url]);
-
-                                // 2. Extraer autor y título del info.json
-                                const infoJsonPath = tempHtmlPath.replace('.html', '.info.json');
-                                const infoJsonContent = await fs.readFile(infoJsonPath, 'utf-8');
-                                const info = JSON.parse(infoJsonContent);
-                                const author = info.uploader || new URL(job.url).pathname.split('/')[1] || 'unknown_author';
-                                const title = `Hilo de @${author}`;
-
-                                // 3. Convertir a EPUB
-                                await onProgress('Convirtiendo HTML a EPUB...');
-                                await runShellCommand('ebook-convert', [
-                                    tempHtmlPath, tempEpubPath,
-                                    '--title', title,
-                                    '--authors', author,
-                                    '--language=es', '--chapter-mark=pagebreak',
-                                    '--max-toc-links=0', '--no-default-epub-cover',
-                                    '--level1-toc', '//h[1-6]'
-                                ]);
-
-                                fileBuffer = await fs.readFile(tempEpubPath);
-                                await Promise.all([
-                                    fs.unlink(tempHtmlPath), fs.unlink(tempEpubPath), fs.unlink(infoJsonPath)
-                                ]).catch(e => console.warn(`No se pudieron borrar archivos temporales de Twitter: ${e.message}`));
-                            } else {
-                                // Lógica para FanFicFare (Wattpad, AO3, etc.)
-                                const recipeDir = './recipes';
-                                await fs.mkdir(recipeDir, { recursive: true });
-                                const tempEpubPath = path.join(tempDir, `download_${Date.now()}.epub`);
-                                const recipePath = path.join(recipeDir, `recipe_${Date.now()}.recipe`);
-                                await createFanFicFareRecipe(job.url, recipePath);
-                                await runShellCommand('xvfb-run', ['-a', 'ebook-convert', recipePath, tempEpubPath]);
-                                fileBuffer = await fs.readFile(tempEpubPath);
-                            }
+                            // Lógica para FanFicFare (AO3, FanFiction.net, etc.)
+                            const recipeDir = './recipes';
+                            await fs.mkdir(recipeDir, { recursive: true });
+                            const tempEpubPath = path.join(tempDir, `download_${Date.now()}.epub`);
+                            const recipePath = path.join(recipeDir, `recipe_${Date.now()}.recipe`);
+                            await createFanFicFareRecipe(job.url, recipePath);
+                            await runShellCommand('xvfb-run', ['-a', 'ebook-convert', recipePath, tempEpubPath]);
+                            fileBuffer = await fs.readFile(tempEpubPath);
                         }
                         
                         // Guardar en caché para futuras solicitudes
@@ -1387,9 +1406,9 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
     let currentBuffer = await zip.generateAsync({ type: 'nodebuffer' });
 
     // --- Traducción con Calibre ---
-    if (shouldTranslate && options.translationEngine) {
+    if (shouldTranslate) {
         await onProgress('Traduciendo con Calibre... (esto puede tardar)');
-        logEvent(`Chat ${options.chatId}: Iniciando traducción con Calibre usando ${options.translationEngine}.`);
+        logEvent(`Chat ${options.chatId}: Iniciando traducción con Calibre usando ${options.translationEngine || 'google'}.`);
 
         const tempDir = './temp';
         await fs.mkdir(tempDir, { recursive: true });
@@ -1398,14 +1417,22 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
         const configPath = path.join(tempDir, `translate-config_${Date.now()}.json`);
 
         await fs.writeFile(inputPath, currentBuffer);
+        
+        // La función createTranslationConfig ya existe y es la correcta para este propósito.
+        // No se necesita un comando --translate directo.
         await createTranslationConfig(configPath, options);
 
         try {
             await runShellCommand('ebook-convert', [inputPath, outputPath, '--read-config', configPath]);
-            currentBuffer = await fs.readFile(outputPath);
+            currentBuffer = await fs.readFile(outputPath); // Sobrescribir el buffer con el resultado traducido
             logEvent(`Chat ${options.chatId}: Traducción con Calibre completada.`);
         } finally {
-            await Promise.all([fs.unlink(inputPath), fs.unlink(outputPath), fs.unlink(configPath)]).catch(e => logEvent(`Chat ${options.chatId}: Advertencia - No se pudieron borrar archivos temporales de traducción.`));
+            // Limpiar los archivos temporales de traducción
+            await Promise.all([
+                fs.unlink(inputPath).catch(e => logEvent(`Chat ${options.chatId}: Advertencia - No se pudo borrar ${inputPath}`)),
+                fs.unlink(outputPath).catch(e => logEvent(`Chat ${options.chatId}: Advertencia - No se pudo borrar ${outputPath}`)),
+                fs.unlink(configPath).catch(e => logEvent(`Chat ${options.chatId}: Advertencia - No se pudo borrar ${configPath}`))
+            ]);
         }
     }
 

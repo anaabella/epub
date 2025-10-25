@@ -99,7 +99,9 @@ function cleanTextNodes(doc, options, window) {
         "OceanoPDF.com"
     ];
     const periodQuoteRegex = /\.["”]/g;
-    const allQuotesRegex = /["'“”‘’«»]/g;
+    // Expresión regular mejorada: busca comillas que NO están entre dos letras.
+    // Esto evita reemplazar apóstrofos en contracciones como "don't" o "I'm".
+    const allQuotesRegex = /(?<![a-zA-Z])'|'(?![a-zA-Z])|["“”‘’«»]/g;
 
     // Recopilar todas las reglas de reemplazo (de un solo uso y de diccionarios activos)
     let allReplacements = [...(options.singleUseReplacements || [])];
