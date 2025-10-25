@@ -821,7 +821,7 @@ async function processUserQueue(chatId) {
                             const tempEpubPath = path.join(tempDir, `tumblr_${Date.now()}.epub`);
 
                             // 1. Descargar el HTML con yt-dlp
-                            await runShellCommand('yt-dlp', ['-o', tempHtmlPath, job.url]);
+                            await runShellCommand(YT_DLP_PATH, ['-o', tempHtmlPath, job.url]);
 
                             // Extraer título y autor de la URL para los metadatos
                             const urlParts = new URL(job.url);
@@ -850,7 +850,7 @@ async function processUserQueue(chatId) {
                                 const tempEpubPath = path.join(tempDir, `twitter_${Date.now()}.epub`);
 
                                 // 1. Descargar el HTML y el info.json con yt-dlp
-                                await runShellCommand('yt-dlp', ['--no-playlist', '-o', tempHtmlPath, '--write-info-json', '--skip-download', job.url]);
+                                await runShellCommand(YT_DLP_PATH, ['--no-playlist', '-o', tempHtmlPath, '--write-info-json', '--skip-download', job.url]);
 
                                 // 2. Extraer autor y título del info.json
                                 const infoJsonPath = tempHtmlPath.replace('.html', '.info.json');
@@ -1257,7 +1257,7 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
     let bookSummary = null;
 
     // --- Detección de idioma ---
-    let shouldTranslate = true; // Por defecto, intentamos traducir.
+    let shouldTranslate = options.translate !== false; // Traducir a menos que esté explícitamente desactivado.
     await onProgress('Paso 2/4: Detectando idioma...');
 
     // 1. Intentar con los metadatos (más rápido)
@@ -1280,11 +1280,6 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
             console.log('El libro ya está en español (según análisis de contenido). No se traducirá.');
             logEvent(`Chat ${options.chatId}: El libro ya está en español (según análisis de contenido). No se traducirá.`);
         }
-    }
-
-    // Si el usuario explícitamente desactivó la traducción en el menú, respetamos su decisión.
-    if (options.translate === false) {
-        shouldTranslate = false;
     }
 
     logEvent(`Chat ${options.chatId}: Idioma detectado: ${lang}. Decisión de traducción: ${shouldTranslate}.`);

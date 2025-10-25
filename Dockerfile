@@ -17,7 +17,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libfontconfig1 \
     xvfb \
     xauth \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && wget -O /usr/local/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+    && chmod a+rx /usr/local/bin/yt-dlp
+
 
 # Run the Calibre installer non-interactively
 RUN wget -nv -O- https://download.calibre-ebook.com/linux-installer.sh | sh -s -- install_dir=/opt
