@@ -753,11 +753,12 @@ async function sendProcessedFile(chatId, processedBuffer, wasTranslated, bookSum
  * @param {string} recipePath - La ruta donde se guardará el archivo .recipe.
  */
 async function createFanFicFareRecipe(url, recipePath) {
-    const recipeContent = `from calibre.web.feeds.recipes import BasicNewsRecipe
-class FanFicFare(BasicNewsRecipe):
-    title = u'Downloaded Story'
-    __author__ = u'FanFicFare'
-    extra_customization = (('url', 'url', 'URL', 'URL of story to download'),)
+    const recipeContent = `
+from calibre.web.recipes.fanfictionnet import FanFictionNetSite
+class GeneratedRecipe(FanFictionNetSite):
+    def __init__(self, *args):
+        FanFictionNetSite.__init__(self, *args)
+        self.story_url = '${url}'
 `;
     await fs.writeFile(recipePath, recipeContent.trim());
 }
@@ -812,24 +813,81 @@ async function processUserQueue(chatId) {
                         // Si no está en caché, descargar
                         logEvent(`Cache: No se encontró archivo en caché. Descargando desde: ${job.url}`);
                         const tempDir = './temp';
-                        const recipeDir = './recipes';
                         await fs.mkdir(tempDir, { recursive: true });
-                        await fs.mkdir(recipeDir, { recursive: true });
 
-                        const tempEpubPath = path.join(tempDir, `download_${Date.now()}.epub`);
-                        const recipePath = path.join(recipeDir, `recipe_${Date.now()}.recipe`);
-                        
-                        await onProgress(`Descargando historia de ${new URL(job.url).hostname}...`);
-                        await createFanFicFareRecipe(job.url, recipePath);
-                        await runShellCommand('xvfb-run', ['-a', 'ebook-convert', recipePath, tempEpubPath, '--extra-customization', `url=${job.url}`]);
-                        fileBuffer = await fs.readFile(tempEpubPath);
+                        if (tumblrUrlRegex.test(job.url)) {
+                            await onProgress('Descargando post de Tumblr con yt-dlp...');
+                            const tempHtmlPath = path.join(tempDir, `tumblr_${Date.now()}.html`);
+                            const tempEpubPath = path.join(tempDir, `tumblr_${Date.now()}.epub`);
+
+                            // 1. Descargar el HTML con yt-dlp
+                            await runShellCommand('yt-dlp', ['-o', tempHtmlPath, job.url]);
+
+                            // Extraer título y autor de la URL para los metadatos
+                            const urlParts = new URL(job.url);
+                            const author = urlParts.hostname.split('.')[0];
+                            const title = `Post de ${author}`;
+
+                            // 2. Convertir el HTML a EPUB con Calibre
+                            await onProgress('Convirtiendo HTML a EPUB...');
+                            await runShellCommand('ebook-convert', [
+                                tempHtmlPath, tempEpubPath,
+                                '--title', title,
+                                '--authors', author,
+                                '--language=es',
+                                '--chapter-mark=pagebreak',
+                                '--max-toc-links=0',
+                                '--no-default-epub-cover'
+                            ]);
+
+                            fileBuffer = await fs.readFile(tempEpubPath);
+                            await fs.unlink(tempHtmlPath).catch(e => console.warn(`No se pudo borrar el archivo HTML temporal: ${tempHtmlPath}`, e));
+                            await fs.unlink(tempEpubPath).catch(e => console.warn(`No se pudo borrar el archivo EPUB temporal: ${tempEpubPath}`, e));
+                        } else {
+                            if (twitterUrlRegex.test(job.url)) {
+                                await onProgress('Descargando hilo de X/Twitter con yt-dlp...');
+                                const tempHtmlPath = path.join(tempDir, `twitter_${Date.now()}.html`);
+                                const tempEpubPath = path.join(tempDir, `twitter_${Date.now()}.epub`);
+
+                                // 1. Descargar el HTML y el info.json con yt-dlp
+                                await runShellCommand('yt-dlp', ['--no-playlist', '-o', tempHtmlPath, '--write-info-json', '--skip-download', job.url]);
+
+                                // 2. Extraer autor y título del info.json
+                                const infoJsonPath = tempHtmlPath.replace('.html', '.info.json');
+                                const infoJsonContent = await fs.readFile(infoJsonPath, 'utf-8');
+                                const info = JSON.parse(infoJsonContent);
+                                const author = info.uploader || new URL(job.url).pathname.split('/')[1] || 'unknown_author';
+                                const title = `Hilo de @${author}`;
+
+                                // 3. Convertir a EPUB
+                                await onProgress('Convirtiendo HTML a EPUB...');
+                                await runShellCommand('ebook-convert', [
+                                    tempHtmlPath, tempEpubPath,
+                                    '--title', title,
+                                    '--authors', author,
+                                    '--language=es', '--chapter-mark=pagebreak',
+                                    '--max-toc-links=0', '--no-default-epub-cover',
+                                    '--level1-toc', '//h[1-6]'
+                                ]);
+
+                                fileBuffer = await fs.readFile(tempEpubPath);
+                                await Promise.all([
+                                    fs.unlink(tempHtmlPath), fs.unlink(tempEpubPath), fs.unlink(infoJsonPath)
+                                ]).catch(e => console.warn(`No se pudieron borrar archivos temporales de Twitter: ${e.message}`));
+                            } else {
+                                // Lógica para FanFicFare (Wattpad, AO3, etc.)
+                                const recipeDir = './recipes';
+                                await fs.mkdir(recipeDir, { recursive: true });
+                                const tempEpubPath = path.join(tempDir, `download_${Date.now()}.epub`);
+                                const recipePath = path.join(recipeDir, `recipe_${Date.now()}.recipe`);
+                                await createFanFicFareRecipe(job.url, recipePath);
+                                await runShellCommand('xvfb-run', ['-a', 'ebook-convert', recipePath, tempEpubPath]);
+                                fileBuffer = await fs.readFile(tempEpubPath);
+                            }
+                        }
                         
                         // Guardar en caché para futuras solicitudes
                         await fs.writeFile(cachedFilePath, fileBuffer);
-                        await Promise.all([
-                            fs.unlink(tempEpubPath).catch(e => console.warn(`No se pudo borrar el archivo temporal: ${tempEpubPath}`, e)),
-                            fs.unlink(recipePath).catch(e => console.warn(`No se pudo borrar el archivo de receta: ${recipePath}`, e))
-                        ]);
                     }
                     
                     // Intentar extraer el título del EPUB descargado para un nombre de archivo más descriptivo
@@ -1199,7 +1257,7 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
     let bookSummary = null;
 
     // --- Detección de idioma ---
-    let shouldTranslate = options.translate !== false; // Traducir a menos que esté explícitamente desactivado.
+    let shouldTranslate = true; // Por defecto, intentamos traducir.
     await onProgress('Paso 2/4: Detectando idioma...');
 
     // 1. Intentar con los metadatos (más rápido)
@@ -1222,6 +1280,11 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
             console.log('El libro ya está en español (según análisis de contenido). No se traducirá.');
             logEvent(`Chat ${options.chatId}: El libro ya está en español (según análisis de contenido). No se traducirá.`);
         }
+    }
+
+    // Si el usuario explícitamente desactivó la traducción en el menú, respetamos su decisión.
+    if (options.translate === false) {
+        shouldTranslate = false;
     }
 
     logEvent(`Chat ${options.chatId}: Idioma detectado: ${lang}. Decisión de traducción: ${shouldTranslate}.`);
@@ -1360,9 +1423,8 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
     
     // 5. Generar como Buffer para Node.js
     await onProgress('Paso 4/4: Reempaquetando el archivo...');
-    const finalBuffer = await zip.generateAsync({ type: 'nodebuffer' });
 
-    return [currentBuffer, shouldTranslate, bookSummary];
+    return [currentBuffer, shouldTranslate, bookSummary]; // currentBuffer ya contiene el EPUB final (traducido o no)
 }
 
 start();
