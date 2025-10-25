@@ -36,10 +36,12 @@ WORKDIR /usr/src/app
 COPY package*.json ./
 RUN npm install
 
-# Instalar FanFicFare (plugin de Calibre) desde PyPI
-RUN apt-get update && apt-get install -y --no-install-recommends python3-pip && \
-    python3 -m pip install --no-cache-dir fanficfare && \
-    apt-get purge -y python3-pip && apt-get autoremove -y && \
+# Instalar pipx y FanFicFare en un entorno aislado
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends pipx && \
+    pipx install fanficfare && \
+    pipx ensurepath && \
+    apt-get remove -y pipx && apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
 # Bundle app source
