@@ -651,6 +651,8 @@ async function handleError(err, chatId, statusMessage) {
     }
 }
 
+const YT_DLP_PATH = process.env.YT_DLP_PATH || '/usr/local/bin/yt-dlp';
+
 const runShellCommand = (command, args = []) => new Promise((resolve, reject) => {
     let finalCommand = command;
     let finalArgs = args;
@@ -1257,7 +1259,7 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
     let bookSummary = null;
 
     // --- Detección de idioma ---
-    let shouldTranslate = options.translate !== false; // Traducir a menos que esté explícitamente desactivado.
+    let shouldTranslate = true; // Por defecto, la traducción está activada.
     await onProgress('Paso 2/4: Detectando idioma...');
 
     // 1. Intentar con los metadatos (más rápido)
@@ -1280,6 +1282,11 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
             console.log('El libro ya está en español (según análisis de contenido). No se traducirá.');
             logEvent(`Chat ${options.chatId}: El libro ya está en español (según análisis de contenido). No se traducirá.`);
         }
+    }
+
+    // Si el usuario explícitamente desactivó la traducción en el menú, respetamos su decisión.
+    if (options.translate === false) {
+        shouldTranslate = false;
     }
 
     logEvent(`Chat ${options.chatId}: Idioma detectado: ${lang}. Decisión de traducción: ${shouldTranslate}.`);
