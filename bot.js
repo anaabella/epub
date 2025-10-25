@@ -653,6 +653,7 @@ async function handleError(err, chatId, statusMessage) {
 }
 
 const YT_DLP_PATH = process.env.YT_DLP_PATH || '/usr/local/bin/yt-dlp';
+const READABILITY_EXTRACTOR_PATH = '/usr/local/bin/readability-extractor';
 
 const runShellCommand = (command, args = []) => new Promise((resolve, reject) => {
     let finalCommand = command;
@@ -1234,7 +1235,31 @@ async function detectLanguageFromContent(zip) {
     return null;
 }
 
-// --- 7. Lógica de Procesamiento (Adaptada de la PWA) ---
+// -
+/**
+ * Crea un archivo de configuración de traducción para Calibre.
+ * @param {string} configPath - La ruta donde se guardará el archivo .json.
+ * @param {object} options - Las opciones del usuario, que incluyen el motor y la clave API.
+ */
+async function createTranslationConfig(configPath, options) {
+    const selectedEngine = options.translationEngine || 'google';
+    let apiKey = null;
+
+    if (selectedEngine === 'deepl') {
+        apiKey = process.env.DEEPL_KEY;
+        if (!apiKey) throw new Error('La clave de API de DeepL (DEEPL_KEY) no está configurada.');
+    }
+
+    const config = {
+        "translate_html_with_google": true,
+        "google_translate_source": "auto",
+        "google_translate_target": "es",
+        "google_translate_api_key": selectedEngine === 'deepl' ? apiKey : null,
+        "google_translate_engine": selectedEngine
+    };
+
+    await fs.writeFile(configPath, JSON.stringify(config, null, 2));
+}
 
 /**
  * Procesa un buffer de archivo .epub y aplica las opciones de limpieza.
