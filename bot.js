@@ -136,6 +136,7 @@ const defaultOptions = {
     removeHyperlinks: false,
     removeFootnotes: false,
     optimizeImages: false // Nueva opción para optimizar imágenes
+    forceTranslation: false, // Nueva opción para forzar la traducción
 };
 
 // Definir los motores de traducción disponibles
@@ -158,7 +159,7 @@ function generateOptionsKeyboard(options) {
             case 'removeHyperlinks': return `${emoji} Quitar hipervínculos`;
             case 'removeFootnotes': return `${emoji} Quitar notas al pie`;
             case 'optimizeImages': return `${emoji} Optimizar imágenes`;
-            case 'translate':      return `${emoji} Traducir a Español`;
+            case 'forceTranslation': return `${emoji} Forzar traducción`;
             case 'generateSummary': return `${emoji} Generar resumen con IA`;
             default:               return '';
         }
@@ -177,7 +178,7 @@ function generateOptionsKeyboard(options) {
         [ { text: getLabel('removeHyperlinks'), callback_data: 'toggle_removeHyperlinks' } ],
         [ { text: getLabel('removeFootnotes'), callback_data: 'toggle_removeFootnotes' } ],
         [ { text: getLabel('optimizeImages'), callback_data: 'toggle_optimizeImages' } ],
-        [ { text: getLabel('translate'), callback_data: 'toggle_translate' } ], // Keep this to enable/disable translation
+        [ { text: getLabel('forceTranslation'), callback_data: 'toggle_forceTranslation' } ],
         [ { text: getLabel('generateSummary'), callback_data: 'toggle_generateSummary' } ], // New button
         [ { text: 'Guardar como mis opciones por defecto', callback_data: 'save_default_options' } ], // Nuevo botón
         [ { text: `Cambiar motor de traducción: ${currentEngine.name}`, callback_data: 'cycle_translation_engine' } ], // New button
@@ -823,7 +824,7 @@ async function processUserQueue(chatId) {
 
                             // FanFicFare ya viene dentro de Calibre; solo llamamos a ebook-convert con la URL
                             await runShellCommand('ebook-convert', [
-                                job.url,                       // URL de Wattpad
+                                job.url.trim(),                // URL de Wattpad
                                 tempEpubPath,
                                 '--language=es',
                                 '--chapter-mark=pagebreak',
@@ -1263,7 +1264,7 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
     let bookSummary = null;
 
     // --- Detección de idioma ---
-    let shouldTranslate = options.translate; // Empezar con la opción del usuario.
+    let shouldTranslate = false; // Por defecto, no traducir.
     await onProgress('Paso 2/4: Detectando idioma...');
 
     // 1. Intentar con los metadatos (más rápido)
@@ -1271,23 +1272,21 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
     console.log(`Idioma detectado en metadatos (OPF): ${lang}`);
     logEvent(`Chat ${options.chatId}: Idioma detectado en metadatos (OPF): ${lang}`);
 
-    // Si el usuario no ha desactivado explícitamente la traducción, activarla si el idioma no es español.
-    if (options.translate !== false) {
-        let isSpanish = false;
-        if (lang && lang.toLowerCase().startsWith('es')) {
-            isSpanish = true;
-            logEvent(`Chat ${options.chatId}: El libro ya está en español (según metadatos). No se traducirá.`);
-        } else {
-            lang = await detectLanguageFromContent(zip); // Analizar contenido solo si es necesario
-            logEvent(`Chat ${options.chatId}: Idioma detectado en contenido (franc): ${lang}`);
-            if (lang === 'spa') {
-                isSpanish = true;
-                logEvent(`Chat ${options.chatId}: El libro ya está en español (según análisis de contenido). No se traducirá.`);
-            }
+    // La traducción solo se activa si el usuario la fuerza explícitamente.
+    if (options.forceTranslation) {
+        let isSpanish = (lang && lang.toLowerCase().startsWith('es'));
+
+        // Si los metadatos no son concluyentes, analizar el contenido.
+        if (!isSpanish) {
+            const contentLang = await detectLanguageFromContent(zip);
+            logEvent(`Chat ${options.chatId}: Idioma detectado en contenido (franc): ${contentLang}`);
+            isSpanish = (contentLang === 'spa');
         }
+
+        // Activar la traducción solo si el libro NO está en español.
         shouldTranslate = !isSpanish;
     }
-
+    
     logEvent(`Chat ${options.chatId}: Idioma detectado: ${lang}. Decisión de traducción: ${shouldTranslate}.`);
 
     // --- Modificación de metadatos ---
