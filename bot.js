@@ -838,7 +838,7 @@ async function processUserQueue(chatId) {
                             const tempHtmlPath = path.join(tempDir, `tumblr_${Date.now()}.html`);
                             const tempEpubPath = path.join(tempDir, `tumblr_${Date.now()}.epub`);
                         // 1. Extraer HTML limpio con readability-extractor
-                            await runShellCommand('readability-extractor', [job.url, '--html', '--output', tempHtmlPath]);
+                            await runShellCommand(READABILITY_EXTRACTOR_PATH, [job.url, '--html', '--output', tempHtmlPath]);
 
                             // 2. Convertir a EPUB con pandoc
                             await onProgress('Convirtiendo HTML a EPUB...');
@@ -860,7 +860,7 @@ async function processUserQueue(chatId) {
                             const tempEpubPath = path.join(tempDir, `twitter_${Date.now()}.epub`);
 
                             // 1. Extraer HTML limpio con readability-extractor
-                            await runShellCommand('readability-extractor', [job.url, '--html', '--output', tempHtmlPath]);
+                            await runShellCommand(READABILITY_EXTRACTOR_PATH, [job.url, '--html', '--output', tempHtmlPath]);
 
                             // 2. Extraer autor y título
                             const author = new URL(job.url).pathname.split('/')[1] || 'unknown_author';
@@ -1263,7 +1263,7 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
     let bookSummary = null;
 
     // --- Detección de idioma ---
-    let shouldTranslate = true; // Por defecto, la traducción está activada.
+    let shouldTranslate = options.translate; // Empezar con la opción del usuario.
     await onProgress('Paso 2/4: Detectando idioma...');
 
     // 1. Intentar con los metadatos (más rápido)
@@ -1271,26 +1271,21 @@ async function processEpubBuffer(buffer, options, onProgress = async () => {}) {
     console.log(`Idioma detectado en metadatos (OPF): ${lang}`);
     logEvent(`Chat ${options.chatId}: Idioma detectado en metadatos (OPF): ${lang}`);
 
-    if (lang && lang.toLowerCase().startsWith('es')) { // Si los metadatos indican español
-        shouldTranslate = false;
-        console.log('El libro ya está en español (según metadatos). No se traducirá.');
-        logEvent(`Chat ${options.chatId}: El libro ya está en español (según metadatos). No se traducirá.`);
-    } else {
-        // 2. Si los metadatos no son concluyentes, analizar el contenido (más fiable)
-        lang = await detectLanguageFromContent(zip);
-        console.log(`Idioma detectado en contenido (franc): ${lang}`);
-        logEvent(`Chat ${options.chatId}: Idioma detectado en contenido (franc): ${lang}`);
-        // 'spa' es el código ISO 639-3 para español de franc
-        if (lang === 'spa') {
-            shouldTranslate = false; // Si el contenido es español
-            console.log('El libro ya está en español (según análisis de contenido). No se traducirá.');
-            logEvent(`Chat ${options.chatId}: El libro ya está en español (según análisis de contenido). No se traducirá.`);
+    // Si el usuario no ha desactivado explícitamente la traducción, activarla si el idioma no es español.
+    if (options.translate !== false) {
+        let isSpanish = false;
+        if (lang && lang.toLowerCase().startsWith('es')) {
+            isSpanish = true;
+            logEvent(`Chat ${options.chatId}: El libro ya está en español (según metadatos). No se traducirá.`);
+        } else {
+            lang = await detectLanguageFromContent(zip); // Analizar contenido solo si es necesario
+            logEvent(`Chat ${options.chatId}: Idioma detectado en contenido (franc): ${lang}`);
+            if (lang === 'spa') {
+                isSpanish = true;
+                logEvent(`Chat ${options.chatId}: El libro ya está en español (según análisis de contenido). No se traducirá.`);
+            }
         }
-    }
-
-    // Si el usuario explícitamente desactivó la traducción en el menú, respetamos su decisión.
-    if (options.translate === false) {
-        shouldTranslate = false;
+        shouldTranslate = !isSpanish;
     }
 
     logEvent(`Chat ${options.chatId}: Idioma detectado: ${lang}. Decisión de traducción: ${shouldTranslate}.`);
