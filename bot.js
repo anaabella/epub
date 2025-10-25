@@ -821,16 +821,18 @@ async function processUserQueue(chatId) {
                             await onProgress('Descargando historia de Wattpad con FanFicFare...');
                             const tempEpubPath = path.join(tempDir, `wattpad_${Date.now()}.epub`);
 
-                            // Lanzar FanFicFare (viene dentro de Calibre)
+                            // FanFicFare ya viene dentro de Calibre; solo llamamos a ebook-convert con la URL
                             await runShellCommand('ebook-convert', [
                                 job.url,                       // URL de Wattpad
                                 tempEpubPath,
-                                '--language=es', '--chapter-mark=pagebreak',
-                                '--max-toc-links=0', '--no-default-epub-cover'
+                                '--language=es',
+                                '--chapter-mark=pagebreak',
+                                '--max-toc-links=0',
+                                '--no-default-epub-cover'
                             ]);
 
                             fileBuffer = await fs.readFile(tempEpubPath);
-                            await fs.unlink(tempEpubPath).catch(e => console.warn(`No se pudo borrar el archivo EPUB temporal: ${tempEpubPath}`, e));
+                            await fs.unlink(tempEpubPath).catch(() => {});
                         } else if (tumblrUrlRegex.test(job.url)) {
                             await onProgress('Descargando post de Tumblr...');
                             const tempHtmlPath = path.join(tempDir, `tumblr_${Date.now()}.html`);
