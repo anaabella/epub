@@ -36,12 +36,11 @@ WORKDIR /usr/src/app
 COPY package*.json ./
 RUN npm install
 
-# Instalar FanFicFare dentro de Calibre (una sola vez al construir la imagen)
-RUN apt-get update && apt-get install -y --no-install-recommends wget && \
-    wget -O /tmp/fanficfare.zip \
-    https://github.com/JimmXinu/FanFicFare/releases/latest/download/fanficfare_plugin.zip && \
-    calibre-customize --add-plugin /tmp/fanficfare.zip && \
-    rm /tmp/fanficfare.zip
+# Instalar FanFicFare (plugin de Calibre) desde PyPI
+RUN apt-get update && apt-get install -y --no-install-recommends python3-pip && \
+    python3 -m pip install --no-cache-dir fanficfare && \
+    apt-get purge -y python3-pip && apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/*
 
 # Bundle app source
 COPY . .
