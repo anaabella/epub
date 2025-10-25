@@ -36,6 +36,9 @@ WORKDIR /usr/src/app
 COPY package*.json ./
 RUN npm install
 
+# Instalar FanFicFare dentro de Calibre (una sola vez al construir la imagen)
+RUN calibre-customize --add-plugin https://github.com/JimmXinu/FanFicFare/releases/download/v4.31.0/fanficfare_plugin.zip
+
 # Bundle app source
 COPY . .
 

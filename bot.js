@@ -818,83 +818,77 @@ async function processUserQueue(chatId) {
                         await fs.mkdir(tempDir, { recursive: true });
 
                         if (wattpadUrlRegex.test(job.url)) {
-                            await onProgress('Descargando historia de Wattpad con yt-dlp...');
-                            const tempHtmlPath = path.join(tempDir, `wattpad_${Date.now()}.html`);
+                            await onProgress('Descargando historia de Wattpad con FanFicFare...');
                             const tempEpubPath = path.join(tempDir, `wattpad_${Date.now()}.epub`);
 
-                            // 1. Descargar el HTML con yt-dlp
-                            await runShellCommand(YT_DLP_PATH, ['--no-playlist', '-o', tempHtmlPath, job.url]);
-
-                            // 2. Extraer autor y título
-                            const author = 'Wattpad'; // yt-dlp for wattpad doesn't easily provide author
-                            const title = new URL(job.url).pathname.split('/')[2] || `Wattpad Story`;
-
-                            // 3. Convertir a EPUB
-                            await onProgress('Convirtiendo HTML a EPUB...');
+                            // Lanzar FanFicFare (viene dentro de Calibre)
                             await runShellCommand('ebook-convert', [
-                                tempHtmlPath, tempEpubPath,
-                                '--title', title,
-                                '--authors', author,
+                                job.url,                       // URL de Wattpad
+                                tempEpubPath,
                                 '--language=es', '--chapter-mark=pagebreak',
                                 '--max-toc-links=0', '--no-default-epub-cover'
                             ]);
 
                             fileBuffer = await fs.readFile(tempEpubPath);
-                            await fs.unlink(tempHtmlPath).catch(e => console.warn(`No se pudo borrar el archivo HTML temporal: ${tempHtmlPath}`, e));
                             await fs.unlink(tempEpubPath).catch(e => console.warn(`No se pudo borrar el archivo EPUB temporal: ${tempEpubPath}`, e));
                         } else if (tumblrUrlRegex.test(job.url)) {
-                            await onProgress('Descargando post de Tumblr con yt-dlp...');
-                            const tempHtmlPath = path.join(tempDir, `tumblr_${Date.now()}.html`);
+                            await onProgress('Extrayendo contenido de Tumblr...');
+                            const tempJsonPath = path.join(tempDir, `tumblr_${Date.now()}.json`);
                             const tempEpubPath = path.join(tempDir, `tumblr_${Date.now()}.epub`);
 
-                            // 1. Descargar el HTML con yt-dlp
-                            await runShellCommand(YT_DLP_PATH, ['--no-check-certificates', '--no-playlist', '-o', tempHtmlPath, job.url]);
+                            // 1. Descargar los metadatos JSON con yt-dlp
+                            await runShellCommand(YT_DLP_PATH, ['--no-check-certificates', '--dump-json', '-o', tempJsonPath, job.url]);
 
-                            // Extraer título y autor de la URL para los metadatos
-                            const urlParts = new URL(job.url);
-                            const author = urlParts.hostname.split('.')[0];
-                            const title = `Post de ${author}`;
-
-                            // 2. Convertir a EPUB
-                            await onProgress('Convirtiendo HTML a EPUB...');
-                            await runShellCommand('ebook-convert', [
-                                tempHtmlPath, tempEpubPath,
-                                '--title', title, '--authors', author,
-                                '--language=es', '--chapter-mark=pagebreak',
-                                '--max-toc-links=0', '--no-default-epub-cover'
-                            ]);
-
-                            fileBuffer = await fs.readFile(tempEpubPath);
-                            await fs.unlink(tempHtmlPath).catch(e => console.warn(`No se pudo borrar el archivo HTML temporal: ${tempHtmlPath}`, e));
-                            await fs.unlink(tempEpubPath).catch(e => console.warn(`No se pudo borrar el archivo EPUB temporal: ${tempEpubPath}`, e));
-                        } else if (twitterUrlRegex.test(job.url)) {
-                            await onProgress('Descargando hilo de X/Twitter con yt-dlp...');
-                            const tempHtmlPath = path.join(tempDir, `twitter_${Date.now()}.html`);
-                            const tempEpubPath = path.join(tempDir, `twitter_${Date.now()}.epub`);
-
-                            // 1. Descargar el HTML y el info.json con yt-dlp
-                            await runShellCommand(YT_DLP_PATH, ['--no-check-certificates', '--no-playlist', '-o', tempHtmlPath, '--write-info-json', '--skip-download', job.url]);
-
-                            // 2. Extraer autor y título del info.json
-                            const infoJsonPath = tempHtmlPath.replace('.html', '.info.json');
-                            const infoJsonContent = await fs.readFile(infoJsonPath, 'utf-8');
-                            const info = JSON.parse(infoJsonContent);
-                            const author = info.uploader || new URL(job.url).pathname.split('/')[1] || 'unknown_author';
-                            const title = `Hilo de @${author}`;
+                            // 2. Leer el JSON y construir un HTML simple
+                            const jsonContent = await fs.readFile(tempJsonPath, 'utf-8');
+                            const data = JSON.parse(jsonContent);
+                            const author = data.uploader || 'Tumblr Post';
+                            const title = data.title || `Post by ${author}`;
+                            const contentHtml = `<h1>${title}</h1><h2>by ${author}</h2><div>${data.description.replace(/\n/g, '<br>')}</div>`;
+                            const tempHtmlPath = path.join(tempDir, `tumblr_${Date.now()}.html`);
+                            await fs.writeFile(tempHtmlPath, contentHtml);
 
                             // 3. Convertir a EPUB
                             await onProgress('Convirtiendo HTML a EPUB...');
                             await runShellCommand('ebook-convert', [
                                 tempHtmlPath, tempEpubPath,
                                 '--title', title, '--authors', author,
-                                '--language=es', '--chapter-mark=pagebreak',
-                                '--max-toc-links=0', '--no-default-epub-cover',
-                                '--level1-toc', '//h[1-6]'
+                                '--language=es', '--chapter-mark=pagebreak', '--max-toc-links=0', '--no-default-epub-cover'
                             ]);
 
                             fileBuffer = await fs.readFile(tempEpubPath);
                             await Promise.all([
-                                fs.unlink(tempHtmlPath), fs.unlink(tempEpubPath), fs.unlink(infoJsonPath)
+                                fs.unlink(tempJsonPath), fs.unlink(tempHtmlPath), fs.unlink(tempEpubPath)
+                            ]).catch(e => console.warn(`No se pudieron borrar archivos temporales de Tumblr: ${e.message}`));
+                        } else if (twitterUrlRegex.test(job.url)) {
+                            await onProgress('Extrayendo contenido de X/Twitter...');
+                            const tempJsonPath = path.join(tempDir, `twitter_${Date.now()}.json`);
+                            const tempEpubPath = path.join(tempDir, `twitter_${Date.now()}.epub`);
+
+                            // 1. Descargar los metadatos JSON con yt-dlp
+                            await runShellCommand(YT_DLP_PATH, ['--no-check-certificates', '--dump-json', '-o', tempJsonPath, job.url]);
+
+                            // 2. Leer el JSON y construir un HTML simple
+                            const jsonContent = await fs.readFile(tempJsonPath, 'utf-8');
+                            const data = JSON.parse(jsonContent);
+                            const author = data.uploader || 'Twitter Post';
+                            const title = `Hilo de @${author}`;
+                            // El contenido del tweet está en el campo 'description'
+                            const contentHtml = `<h1>${title}</h1><div>${data.description.replace(/\n/g, '<br>')}</div>`;
+                            const tempHtmlPath = path.join(tempDir, `twitter_${Date.now()}.html`);
+                            await fs.writeFile(tempHtmlPath, contentHtml);
+
+                            // 3. Convertir a EPUB
+                            await onProgress('Convirtiendo HTML a EPUB...');
+                            await runShellCommand('ebook-convert', [
+                                tempHtmlPath, tempEpubPath,
+                                '--title', title, '--authors', author,
+                                '--language=es', '--chapter-mark=pagebreak', '--max-toc-links=0', '--no-default-epub-cover'
+                            ]);
+
+                            fileBuffer = await fs.readFile(tempEpubPath);
+                            await Promise.all([
+                                fs.unlink(tempJsonPath), fs.unlink(tempHtmlPath), fs.unlink(tempEpubPath)
                             ]).catch(e => console.warn(`No se pudieron borrar archivos temporales de Twitter: ${e.message}`));
                         } else {
                             // Lógica para FanFicFare (AO3, FanFiction.net, etc.)
