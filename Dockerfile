@@ -17,10 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libfontconfig1 \
     xvfb \
     xauth \
-    && rm -rf /var/lib/apt/lists/* \
-    && wget -O /usr/local/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
-    && chmod a+rx /usr/local/bin/yt-dlp
-
+    pandoc \
+    && rm -rf /var/lib/apt/lists/*
 
 # Run the Calibre installer non-interactively
 RUN wget -nv -O- https://download.calibre-ebook.com/linux-installer.sh | sh -s -- install_dir=/opt
@@ -35,6 +33,9 @@ WORKDIR /usr/src/app
 # Install app dependencies
 COPY package*.json ./
 RUN npm install
+
+# Instalar readability-cli globalmente
+RUN npm install -g readability-cli
 
 # Instalar pipx y FanFicFare en un entorno aislado
 RUN apt-get update && \
