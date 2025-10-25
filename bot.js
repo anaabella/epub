@@ -135,7 +135,7 @@ const defaultOptions = {
     translate: false,
     removeHyperlinks: false,
     removeFootnotes: false,
-    optimizeImages: false // Nueva opción para optimizar imágenes
+    optimizeImages: false, // Nueva opción para optimizar imágenes
     forceTranslation: false, // Nueva opción para forzar la traducción
 };
 
