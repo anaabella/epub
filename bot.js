@@ -627,28 +627,34 @@ bot.onText(/\/fin/, async (msg) => {
  * @param {TelegramBot.Message} [statusMessage] - Mensaje de estado opcional para borrar.
  */
 async function handleError(err, chatId, statusMessage) {
-    logEvent(`Error en el chat ${chatId}: ${err.message || err}`);
+    const errorMessage = err.message || String(err);
+    logEvent(`Error en el chat ${chatId}: ${errorMessage}`);
 
+    let userMessage;
     if (err.name === 'AbortError') {
-        await bot.sendMessage(chatId, 'Lo siento, la descarga del archivo tardó demasiado y se canceló. Intenta con un archivo más pequeño o revisa la conexión del servidor.');
-    } else if (err.message && err.message.includes('file is too big')) {
-        await bot.sendMessage(chatId, 'Lo siento, el archivo es demasiado grande para ser procesado por el bot.');
-    } else if (err.message && err.message.includes('Cannot read from')) {
-        await bot.sendMessage(chatId, 'Lo siento, no pude procesar el enlace. Asegúrate de enviar solo la URL de Wattpad, sin texto adicional.');
+        userMessage = 'Lo siento, la descarga del archivo tardó demasiado y se canceló. Intenta con un archivo más pequeño o revisa la conexión del servidor.';
+    } else if (errorMessage.includes('file is too big')) {
+        userMessage = 'Lo siento, el archivo es demasiado grande para ser procesado por el bot.';
+    } else if (errorMessage.includes('Failed to download') || (errorMessage.includes('ebook-convert') && errorMessage.includes('exit code: 1'))) {
+        userMessage = 'Lo siento, no pude descargar el contenido desde el enlace proporcionado. Por favor, verifica que la URL sea correcta y pública.';
+    } else if (errorMessage.includes('DEEPL_KEY')) {
+        userMessage = 'La traducción con DeepL falló. El administrador necesita configurar una clave de API válida.';
+    } else if (errorMessage.includes('exit code: 8')) { // Error de wget 404
+        userMessage = 'Hubo un problema al descargar un componente necesario. Esto puede ser un problema temporal del servidor. Por favor, inténtalo de nuevo más tarde.';
     } else {
-        await bot.sendMessage(chatId, `Lo siento, ocurrió un error inesperado: ${err.message}`);
+        userMessage = 'Lo siento, ocurrió un error inesperado al procesar tu solicitud. El equipo ha sido notificado.';
     }
 
-    if (statusMessage && statusMessage.message_id) {
-        try {
+    try {
+        // Primero, intenta borrar el mensaje de estado si existe.
+        if (statusMessage?.message_id) {
             await bot.deleteMessage(chatId, statusMessage.message_id);
-        } catch (e) {
-            // It's possible the message was already deleted or doesn't exist.
-            // We can ignore 'message to delete not found' errors.
-            if (!e.message.includes('message to delete not found')) {
-                logEvent(`Advertencia: No se pudo borrar el mensaje de estado tras un error: ${e.message}`);
-            }
         }
+        // Luego, envía el mensaje de error al usuario.
+        await bot.sendMessage(chatId, userMessage);
+    } catch (e) {
+        // Si el envío o borrado falla (ej. bot bloqueado), solo lo registramos.
+        logEvent(`Error al notificar al usuario o limpiar mensaje en el chat ${chatId}: ${e.message}`);
     }
 }
 
@@ -816,25 +822,7 @@ async function processUserQueue(chatId) {
                         // Si no está en caché, descargar
                         logEvent(`Cache: No se encontró archivo en caché. Descargando desde: ${job.url}`);
                         const tempDir = './temp';
-                        await fs.mkdir(tempDir, { recursive: true });
-
-                        if (wattpadUrlRegex.test(job.url)) {
-                            await onProgress('Descargando historia de Wattpad con FanFicFare...');
-                            const tempEpubPath = path.join(tempDir, `wattpad_${Date.now()}.epub`);
-
-                            // FanFicFare ya viene dentro de Calibre; solo llamamos a ebook-convert con la URL
-                            await runShellCommand('ebook-convert', [
-                                job.url.trim(),                // URL de Wattpad
-                                tempEpubPath,
-                                '--language=es',
-                                '--chapter-mark=pagebreak',
-                                '--max-toc-links=0',
-                                '--no-default-epub-cover'
-                            ]);
-
-                            fileBuffer = await fs.readFile(tempEpubPath);
-                            await fs.unlink(tempEpubPath).catch(() => {});
-                        } else if (tumblrUrlRegex.test(job.url)) {
+                        await fs.mkdir(tempDir, { recursive: true });                        if (tumblrUrlRegex.test(job.url)) {
                             await onProgress('Descargando post de Tumblr...');
                             const tempHtmlPath = path.join(tempDir, `tumblr_${Date.now()}.html`);
                             const tempEpubPath = path.join(tempDir, `tumblr_${Date.now()}.epub`);
@@ -883,14 +871,14 @@ async function processUserQueue(chatId) {
                                 fs.unlink(tempEpubPath).catch(() => {})
                             ]).catch(e => console.warn(`No se pudieron borrar archivos temporales de Twitter: ${e.message}`));
                         } else {
-                            // Lógica para FanFicFare (AO3, FanFiction.net, etc.)
-                            const recipeDir = './recipes';
-                            await fs.mkdir(recipeDir, { recursive: true });
+                            // Lógica unificada para FanFicFare (Wattpad, AO3, FanFiction.net, etc.)
+                            await onProgress('Descargando historia con FanFicFare...');
                             const tempEpubPath = path.join(tempDir, `download_${Date.now()}.epub`);
-                            const recipePath = path.join(recipeDir, `recipe_${Date.now()}.recipe`);
-                            await createFanFicFareRecipe(job.url, recipePath);
-                            await runShellCommand('xvfb-run', ['-a', 'ebook-convert', recipePath, tempEpubPath]);
+                            // Usamos el comando fanficfare directamente
+                            await runShellCommand('fanficfare', ['-o', 'epub', '-f', tempEpubPath, job.url]);
                             fileBuffer = await fs.readFile(tempEpubPath);
+                            // Limpiamos el archivo temporal
+                            await fs.unlink(tempEpubPath).catch(() => {});
                         }
                         
                         // Guardar en caché para futuras solicitudes
@@ -1172,18 +1160,6 @@ signals.forEach(signal => {
     });
 });
 
-/**
- * Traduce el contenido de un documento HTML a español.
- * @param {Document} doc - El documento DOM a traducir.
- * @param {object} window - El objeto window de JSDOM.
- * @returns {Promise<boolean>} - `true` si se realizó la traducción, de lo contrario `false`.
- * Crea un archivo de configuración de traducción para Calibre.
- * @param {string} configPath - La ruta donde se guardará el archivo .json.
- * @param {object} options - Las opciones del usuario, que incluyen el motor y la clave API.
- */
-async function translateDocument(doc, window, options) {
-    return false;
-}
 
 /**
  * Obtiene el idioma del libro desde el archivo .opf.
@@ -1241,7 +1217,7 @@ async function detectLanguageFromContent(zip) {
  * @param {object} options - Las opciones del usuario, que incluyen el motor y la clave API.
  */
 async function createTranslationConfig(configPath, options) {
-    const selectedEngine = options.translationEngine || 'google';
+    const selectedEngine = options.translationEngine || 'google_v2';
     let apiKey = null;
 
     if (selectedEngine === 'deepl') {
